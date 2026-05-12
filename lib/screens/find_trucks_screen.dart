@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../controllers/app_controller.dart';
 import '../data/mock_data.dart';
@@ -7,6 +8,7 @@ import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_route.dart';
 import '../widgets/common_widgets.dart';
+import 'location_picker_screen.dart';
 import 'truck_results_screen.dart';
 
 class FindTrucksScreen extends StatefulWidget {
@@ -31,6 +33,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
   bool _stacked = true;
   bool _fragile = false;
   final Set<String> _requirements = <String>{'Temperature control', 'Loading help needed'};
+  LatLng? _pickupPoint;
+  LatLng? _dropPoint;
 
   static const _goodsTypes = <String>['Textile', 'Electronics', 'Food', 'Machinery', 'Furniture', 'Other'];
   static const _requirementsOptions = <String>['Temperature control', 'Waterproof cover', 'Loading help needed'];
@@ -237,9 +241,38 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
 
   void _swapLocations() {
     final pickup = _pickupController.text;
+    final pickupPoint = _pickupPoint;
     _pickupController.text = _dropController.text;
+    _pickupPoint = _dropPoint;
     _dropController.text = pickup;
+    _dropPoint = pickupPoint;
     setState(() {});
+  }
+
+  Future<void> _openLocationPicker({required bool isPickup}) async {
+    final result = await Navigator.of(context).push<LocationPickResult>(
+      AppPageRoute(
+        builder: (_) => LocationPickerScreen(
+          title: isPickup ? 'Set Pickup Location' : 'Set Drop Location',
+          initialQuery: isPickup ? _pickupController.text : _dropController.text,
+          initialPoint: isPickup ? _pickupPoint : _dropPoint,
+        ),
+      ),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() {
+      if (isPickup) {
+        _pickupController.text = result.address;
+        _pickupPoint = result.point;
+      } else {
+        _dropController.text = result.address;
+        _dropPoint = result.point;
+      }
+    });
   }
 
   @override
@@ -300,10 +333,16 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                   // Pickup Location
                   TextField(
                     controller: _pickupController,
+                    readOnly: true,
+                    onTap: () => _openLocationPicker(isPickup: true),
                     decoration: InputDecoration(
                       labelText: 'Pickup Location',
                       prefixIcon: const Icon(Icons.location_on_rounded, color: FreightFairColors.accentDark),
                       prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                      suffixIcon: IconButton(
+                        onPressed: () => _openLocationPicker(isPickup: true),
+                        icon: const Icon(Icons.map_rounded, color: FreightFairColors.accentDark),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -313,10 +352,16 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       Expanded(
                         child: TextField(
                           controller: _dropController,
+                          readOnly: true,
+                          onTap: () => _openLocationPicker(isPickup: false),
                           decoration: InputDecoration(
                             labelText: 'Drop Location',
                             prefixIcon: const Icon(Icons.location_on_rounded, color: Color(0xFFD32F2F)),
                             prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                            suffixIcon: IconButton(
+                              onPressed: () => _openLocationPicker(isPickup: false),
+                              icon: const Icon(Icons.map_rounded, color: FreightFairColors.accentDark),
+                            ),
                           ),
                         ),
                       ),
