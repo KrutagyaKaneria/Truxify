@@ -1,4 +1,4 @@
-name: Flutter AI Code Analysis
+name: Truxify Full Repo AI Analysis
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 jobs:
   ai-analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     permissions:
       contents: write
@@ -18,49 +18,73 @@ jobs:
 
     steps:
 
-      # ── 1. Checkout ───────────────────────────────────────────────────────
+      # ── 1. Checkout ──────────────────────────────────────────────────────
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ── 2. Flutter setup ──────────────────────────────────────────────────
+      # ── 2. Flutter setup ─────────────────────────────────────────────────
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Install Dependencies
+      - name: Install Customer App Dependencies
+        working-directory: apps/customer
         run: flutter pub get
 
-      # ── 3. Flutter analyze ────────────────────────────────────────────────
-      - name: Run Flutter Analyze
-        run: flutter analyze 2>&1 | tee flutter_analyze.txt || true
+      - name: Install Driver App Dependencies
+        working-directory: apps/driver
+        run: flutter pub get
 
-      # ── 4. Collect project files ──────────────────────────────────────────
-      - name: Collect Project Files
+      # ── 3. Flutter analyze both apps ─────────────────────────────────────
+      - name: Analyze Customer App
+        working-directory: apps/customer
+        run: flutter analyze 2>&1 | 
+          tee "$GITHUB_WORKSPACE/customer_analyze.txt" || true
+
+      - name: Analyze Driver App
+        working-directory: apps/driver
+        run: flutter analyze 2>&1 | 
+          tee "$GITHUB_WORKSPACE/driver_analyze.txt" || true
+
+      # ── 4. Collect all project files ─────────────────────────────────────
+      - name: Collect All Project Files
         run: |
-          echo "## Flutter Analyze Output" > full_report.txt
-          cat flutter_analyze.txt >> full_report.txt
+          echo "# Truxify Full Repo Analysis" > full_report.txt
           echo "" >> full_report.txt
 
-          echo "## Project Structure" >> full_report.txt
+          # ── Flutter analyze outputs
+          echo "## Customer App — Flutter Analyze" >> full_report.txt
+          cat customer_analyze.txt >> full_report.txt
+          echo "" >> full_report.txt
+
+          echo "## Driver App — Flutter Analyze" >> full_report.txt
+          cat driver_analyze.txt >> full_report.txt
+          echo "" >> full_report.txt
+
+          # ── Project structure
+          echo "## Full Project Structure" >> full_report.txt
           find . \
             -not -path './.git/*' \
-            -not -path './build/*' \
-            -not -path './.dart_tool/*' \
-            -not -path './android/*' \
-            -not -path './ios/*' \
-            -not -path './linux/*' \
-            -not -path './windows/*' \
-            -not -path './macos/*' \
+            -not -path '*/build/*' \
+            -not -path '*/.dart_tool/*' \
+            -not -path '*/node_modules/*' \
+            -not -path '*/__pycache__/*' \
+            -not -path '*/android/*' \
+            -not -path '*/ios/*' \
+            -not -path '*/linux/*' \
+            -not -path '*/windows/*' \
+            -not -path '*/macos/*' \
             | sort >> full_report.txt
           echo "" >> full_report.txt
 
-          echo "## Dart Source Files" >> full_report.txt
-          find lib test -name "*.dart" \
+          # ── Customer app dart files
+          echo "## Customer App — Dart Files" >> full_report.txt
+          find apps/customer/lib apps/customer/test \
+            -name "*.dart" \
             ! -name "*.g.dart" \
             ! -name "*.freezed.dart" \
             ! -name "*.gen.dart" \
-            ! -name "*.mocks.dart" \
             2>/dev/null | while read f; do
               echo "" >> full_report.txt
               echo "### FILE: $f" >> full_report.txt
@@ -69,39 +93,134 @@ jobs:
               echo '```' >> full_report.txt
           done
 
-          echo "" >> full_report.txt
-          echo "### FILE: pubspec.yaml" >> full_report.txt
-          cat pubspec.yaml >> full_report.txt
+          # ── Driver app dart files
+          echo "## Driver App — Dart Files" >> full_report.txt
+          find apps/driver/lib apps/driver/test \
+            -name "*.dart" \
+            ! -name "*.g.dart" \
+            ! -name "*.freezed.dart" \
+            ! -name "*.gen.dart" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```dart' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
 
-          # Truncate safely at 55000 bytes
+          # ── Customer pubspec
+          echo "## Customer pubspec.yaml" >> full_report.txt
+          cat apps/customer/pubspec.yaml >> full_report.txt
+          echo "" >> full_report.txt
+
+          # ── Driver pubspec
+          echo "## Driver pubspec.yaml" >> full_report.txt
+          cat apps/driver/pubspec.yaml >> full_report.txt
+          echo "" >> full_report.txt
+
+          # ── Backend Node.js files
+          echo "## Backend API — Node.js Files" >> full_report.txt
+          find backend/api/src \
+            -name "*.js" -o -name "*.ts" \
+            -o -name "*.json" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
+
+          # ── Backend ML Python files
+          echo "## Backend ML — Python Files" >> full_report.txt
+          find backend/ml \
+            -name "*.py" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```python' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
+
+          # ── Blockchain Solidity files
+          echo "## Blockchain — Solidity Contracts" >> full_report.txt
+          find blockchain/contracts \
+            -name "*.sol" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```solidity' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
+
+          # ── n8n workflow files
+          echo "## Automation — n8n Workflows" >> full_report.txt
+          find automation/n8n \
+            -name "*.json" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```json' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
+
+          # ── GitHub Actions workflows
+          echo "## GitHub Actions Workflows" >> full_report.txt
+          find .github/workflows \
+            -name "*.yml" -o -name "*.yaml" \
+            2>/dev/null | while read f; do
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```yaml' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+          done
+
+          # ── Root config files
+          echo "## Root Config Files" >> full_report.txt
+          for f in docker-compose.yml .gitignore README.md; do
+            if [ -f "$f" ]; then
+              echo "" >> full_report.txt
+              echo "### FILE: $f" >> full_report.txt
+              echo '```' >> full_report.txt
+              cat "$f" >> full_report.txt
+              echo '```' >> full_report.txt
+            fi
+          done
+
+          # ── Truncate safely at 55000 bytes
           head -c 55000 full_report.txt > full_report_safe.txt
           mv full_report_safe.txt full_report.txt
 
           echo "Report size: $(wc -c < full_report.txt) bytes"
-          echo "Dart files: $(grep -c '### FILE:' full_report.txt || echo 0)"
+          echo "Files found: $(grep -c '### FILE:' full_report.txt || echo 0)"
 
-      # ── 4b. Check if source has changed since last scan ──────────────────
+      # ── 5. Check source hash ─────────────────────────────────────────────
       - name: Check Source Hash
         id: source_hash
         run: |
-          # Hash all dart files + pubspec to detect real changes
           HASH=$(
-            (find lib test -name "*.dart" \
-              ! -name "*.g.dart" ! -name "*.freezed.dart" \
-              ! -name "*.gen.dart" ! -name "*.mocks.dart" \
-              2>/dev/null | sort | xargs cat
-             cat pubspec.yaml
+            (
+              find apps backend blockchain automation \
+                -name "*.dart" -o -name "*.js" -o -name "*.ts" \
+                -o -name "*.py" -o -name "*.sol" -o -name "*.json" \
+                -o -name "*.yaml" -o -name "*.yml" \
+                2>/dev/null | sort | xargs cat
+              cat apps/customer/pubspec.yaml 2>/dev/null || true
+              cat apps/driver/pubspec.yaml 2>/dev/null || true
             ) | sha256sum | cut -d' ' -f1
           )
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
           echo "Source hash: $HASH"
 
-          # Compare with last saved hash
           if [ -f .github/last_scan_hash.txt ]; then
             LAST=$(cat .github/last_scan_hash.txt)
             if [ "$HASH" = "$LAST" ]; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "⏭️ Source unchanged since last scan — skipping AI analysis"
+              echo "Source unchanged since last scan — skipping"
             else
               echo "changed=true" >> "$GITHUB_OUTPUT"
             fi
@@ -109,18 +228,34 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── 5. Ensure required labels exist ───────────────────────────────────
+      # ── 6. Ensure labels exist ───────────────────────────────────────────
       - name: Ensure Labels Exist
         uses: actions/github-script@v7
         with:
           script: |
             const labels = [
-              { name: 'flutter-ai-analysis', color: '0075ca', description: 'Flagged by Flutter AI scanner' },
-              { name: 'ai-generated',        color: 'e4e669', description: 'Created by AI analysis'       },
-              { name: 'critical',            color: 'd73a4a', description: 'Critical severity'            },
-              { name: 'high',                color: 'e99695', description: 'High severity'                },
-              { name: 'medium',              color: 'f9d0c4', description: 'Medium severity'              },
-              { name: 'low',                 color: 'cfd3d7', description: 'Low severity'                 },
+              { name: 'flutter-ai-analysis', color: '0075ca', 
+                description: 'Flagged by Flutter AI scanner' },
+              { name: 'ai-generated',        color: 'e4e669', 
+                description: 'Created by AI analysis' },
+              { name: 'critical',            color: 'd73a4a', 
+                description: 'Critical severity' },
+              { name: 'high',                color: 'e99695', 
+                description: 'High severity' },
+              { name: 'medium',              color: 'f9d0c4', 
+                description: 'Medium severity' },
+              { name: 'low',                 color: 'cfd3d7', 
+                description: 'Low severity' },
+              { name: 'flutter',             color: '54C5F8', 
+                description: 'Flutter related' },
+              { name: 'backend',             color: '28a745', 
+                description: 'Backend related' },
+              { name: 'ml',                  color: '6f42c1', 
+                description: 'ML layer related' },
+              { name: 'blockchain',          color: '8247E5', 
+                description: 'Blockchain related' },
+              { name: 'automation',          color: 'fd7e14', 
+                description: 'n8n automation related' },
             ];
             for (const label of labels) {
               try {
@@ -129,15 +264,14 @@ jobs:
                   repo:  context.repo.repo,
                   ...label,
                 });
-                console.log(`Created label: ${label.name}`);
+                console.log(`Created: ${label.name}`);
               } catch (err) {
-                // 422 = label already exists — safe to ignore
                 if (err.status !== 422) throw err;
-                console.log(`Label already exists: ${label.name}`);
+                console.log(`Exists: ${label.name}`);
               }
             }
 
-      # ── 6. Try Gemini first, fall back to Groq ────────────────────────────
+      # ── 7. AI Analysis ───────────────────────────────────────────────────
       - name: AI Analysis
         id: ai_analysis
         if: steps.source_hash.outputs.changed == 'true'
@@ -147,93 +281,118 @@ jobs:
         run: |
           PROJECT_DATA=$(cat full_report.txt)
 
-          PROMPT="You are a senior Flutter/Dart engineer doing a full project audit.
+          PROMPT="You are a senior engineer doing a 
+          full audit of the Truxify monorepo — a 
+          freight marketplace platform.
 
-          Analyze this Flutter project thoroughly. Only report REAL issues you can actually see. Do NOT invent problems.
+          The repo contains:
+          - apps/customer: Flutter web customer app
+          - apps/driver: Flutter web driver app
+          - backend/api: Node.js + Express API
+          - backend/ml: Python FastAPI ML service
+          - blockchain/contracts: Solidity contracts
+          - automation/n8n: n8n workflow files
+          - .github/workflows: CI/CD pipelines
+
+          Analyze ALL files provided. Only report 
+          REAL issues you can actually see in the 
+          code. Do NOT invent problems.
 
           Review these areas:
-          1. Code Quality — dead code, hardcoded values, missing null safety
-          2. Project Structure — folder organization, feature separation
-          3. Architecture — broken patterns, tight coupling, god widgets/classes
-          4. Naming — classes/files not following Dart/Flutter conventions
-          5. Performance — unnecessary rebuilds, missing const constructors, heavy build()
-          6. Security — hardcoded secrets, insecure HTTP, missing validation
-          7. Maintainability — duplicated code, unclear responsibilities
+          1. Code Quality — dead code, hardcoded 
+             values, missing null safety
+          2. Project Structure — folder organization,
+             feature separation
+          3. Architecture — broken patterns, tight 
+             coupling, god widgets/classes
+          4. Naming — files not following conventions
+          5. Performance — unnecessary rebuilds, 
+             missing const constructors, heavy build()
+          6. Security — hardcoded secrets, insecure 
+             HTTP, missing validation
+          7. Maintainability — duplicated code,
+             unclear responsibilities
+          8. Backend — missing error handling, 
+             unvalidated inputs, poor API design
+          9. ML — model loading issues, missing 
+             input validation, performance
+          10. Blockchain — security vulnerabilities,
+              missing access control, reentrancy
+          11. CI/CD — workflow issues, missing steps,
+              security in pipelines
 
-          For EACH real issue found, use this EXACT format (no exceptions):
+          For EACH real issue found use this EXACT 
+          format:
 
-          For the title field, you MUST follow this exact format:
+          Title format:
           [CATEGORY_CODE:FILE_SLUG] Short description
 
-          Where:
-          - CATEGORY_CODE is exactly one of: CQ, ST, AR, NA, PE, SE, MA
-            (Code Quality, Structure, Architecture, Naming, Performance, Security, Maintainability)
-          - FILE_SLUG is the filename only, no path, no extension (e.g. main, home_screen, auth_service)
-            Use "project" if the issue is project-wide
-          - Short description is 3-5 words max, no punctuation
+          CATEGORY_CODE options:
+          CQ=Code Quality, ST=Structure, 
+          AR=Architecture, NA=Naming, 
+          PE=Performance, SE=Security, 
+          MA=Maintainability, BE=Backend,
+          ML=ML Layer, BC=Blockchain, CI=CI/CD
 
-          Examples:
-          [PE:home_screen] Missing const constructors
-          [SE:main] Hardcoded API key
-          [CQ:project] Dead code in utils
+          FILE_SLUG: filename only no path 
+          no extension. Use project if project-wide.
 
           ISSUE_START
-          title: [CATEGORY_CODE:FILE_SLUG] Short description (3-5 words, no punctuation)
+          title: [CODE:slug] description
           severity: critical|high|medium|low
-          category: <Code Quality|Structure|Architecture|Naming|Performance|Security|Maintainability>
+          category: <full category name>
           file: <file path or project-wide>
-          description: <specific evidence you can see in the code>
+          layer: <flutter|backend|ml|blockchain|automation|cicd|project>
+          description: <specific evidence in code>
           suggestion: <concrete actionable fix>
-          extra_label: <choose ONLY one from: bug|enhancement|good first issue|help wanted>
+          extra_label: <bug|enhancement|good first issue|help wanted>
           ISSUE_END
-
-          Guidelines for extra_label:
-          - bug: something is broken, incorrect behavior, crash risk, or security hole
-          - enhancement: improvement to existing code, performance, or structure
-          - good first issue: simple fix, easy for a newcomer (e.g. adding const, renaming)
-          - help wanted: complex refactor or architectural change needing significant effort
 
           After all issues add:
           SUMMARY_START
-          <2-3 paragraph honest overall assessment. Say clearly if the code is actually good.>
+          <2-3 paragraph honest assessment 
+          of the entire repo. Be specific about 
+          each layer — Flutter apps, backend, 
+          ML, blockchain, automation. Say clearly 
+          if any layer is well written.>
           SUMMARY_END
 
           Project data:
           $PROJECT_DATA"
 
-          # ── Try Gemini ────────────────────────────────────────────────────
           echo "Trying Gemini 2.5 Flash..."
-
           GEMINI_PAYLOAD=$(jq -n --arg text "$PROMPT" \
             '{contents: [{parts: [{text: $text}]}]}')
 
-          GEMINI_STATUS=$(curl -s -w "%{http_code}" -o gemini_response.json \
+          GEMINI_STATUS=$(curl -s -w "%{http_code}" \
+            -o gemini_response.json \
             --max-time 60 \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$GEMINI_PAYLOAD")
 
           if [ "$GEMINI_STATUS" = "200" ]; then
-            AI_TEXT=$(jq -r '.candidates[0].content.parts[0].text // ""' gemini_response.json)
+            AI_TEXT=$(jq -r \
+              '.candidates[0].content.parts[0].text // ""' \
+              gemini_response.json)
             if [ -n "$AI_TEXT" ]; then
               echo "$AI_TEXT" > ai_analysis.txt
               echo "AI_PROVIDER=Gemini 2.5 Flash" >> "$GITHUB_ENV"
-              echo "✅ Gemini succeeded"
+              echo "Gemini succeeded"
               exit 0
             fi
           fi
 
-          echo "Gemini failed (status: $GEMINI_STATUS), switching to Groq..."
-
-          # ── Fallback: Groq (Llama 3.3 70B) ───────────────────────────────
+          echo "Gemini failed, trying Groq..."
           GROQ_PAYLOAD=$(jq -n --arg text "$PROMPT" \
             '{
               model: "llama-3.3-70b-versatile",
               max_tokens: 4096,
-              messages: [{ role: "user", content: $text }]
+              messages: [{role:"user",content:$text}]
             }')
 
-          GROQ_STATUS=$(curl -s -w "%{http_code}" -o groq_response.json \
+          GROQ_STATUS=$(curl -s -w "%{http_code}" \
+            -o groq_response.json \
             --max-time 60 \
             "https://api.groq.com/openai/v1/chat/completions" \
             -H "Authorization: Bearer $GROQ_API_KEY" \
@@ -241,21 +400,26 @@ jobs:
             -d "$GROQ_PAYLOAD")
 
           if [ "$GROQ_STATUS" = "200" ]; then
-            AI_TEXT=$(jq -r '.choices[0].message.content // ""' groq_response.json)
+            AI_TEXT=$(jq -r \
+              '.choices[0].message.content // ""' \
+              groq_response.json)
             if [ -n "$AI_TEXT" ]; then
               echo "$AI_TEXT" > ai_analysis.txt
-              echo "AI_PROVIDER=Groq (Llama 3.3 70B)" >> "$GITHUB_ENV"
-              echo "✅ Groq fallback succeeded"
+              echo "AI_PROVIDER=Groq (Llama 3.3 70B)" \
+                >> "$GITHUB_ENV"
+              echo "Groq succeeded"
               exit 0
             fi
           fi
 
-          echo "Both Gemini and Groq failed"
+          echo "Both APIs failed"
           echo "API_FAILED=true" >> "$GITHUB_ENV"
 
-      # ── 7. Create individual GitHub issues ───────────────────────────────
-      - name: Create Individual GitHub Issues
-        if: env.API_FAILED != 'true' && steps.source_hash.outputs.changed == 'true'
+      # ── 8. Create GitHub issues ──────────────────────────────────────────
+      - name: Create GitHub Issues
+        if: >
+          env.API_FAILED != 'true' && 
+          steps.source_hash.outputs.changed == 'true'
         uses: actions/github-script@v7
         env:
           AI_PROVIDER: ${{ env.AI_PROVIDER }}
@@ -265,110 +429,119 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-
             if (!fs.existsSync('ai_analysis.txt')) {
-              console.log('No analysis file, skipping.');
+              console.log('No analysis file.');
               return;
             }
 
-            const analysisText = fs.readFileSync('ai_analysis.txt', 'utf8');
-            const issueBlocks  = [...analysisText.matchAll(/ISSUE_START([\s\S]*?)ISSUE_END/g)];
-            const provider     = process.env.AI_PROVIDER  || 'AI';
-            const commitSha    = process.env.COMMIT_SHA   || 'unknown';
-            const repo         = process.env.REPO         || '';
-            const runId        = process.env.RUN_ID       || '';
+            const analysisText = 
+              fs.readFileSync('ai_analysis.txt', 'utf8');
+            const issueBlocks = [
+              ...analysisText.matchAll(
+                /ISSUE_START([\s\S]*?)ISSUE_END/g)
+            ];
 
-            // Valid extra labels that already exist in the repo
-            const validExtraLabels = ['bug', 'enhancement', 'good first issue', 'help wanted'];
+            const provider  = process.env.AI_PROVIDER || 'AI';
+            const commitSha = process.env.COMMIT_SHA  || 'unknown';
+            const repo      = process.env.REPO        || '';
+            const runId     = process.env.RUN_ID      || '';
 
-            // ── Build a fingerprint from file + title ────────
-            // Stable against AI category/severity drift
-            const makeFingerprint = (title) => {
+            const validExtraLabels = [
+              'bug','enhancement',
+              'good first issue','help wanted'
+            ];
+
+            const validLayers = [
+              'flutter','backend','ml',
+              'blockchain','automation','cicd','project'
+            ];
+
+            const makeFingerprint = title => {
               const m = title.match(/\[([A-Z]{2}:[a-z0-9_]+)\]/);
-              return m ? m[1].toLowerCase() : title.toLowerCase()
-                .replace(/[^a-z0-9\s]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
+              return m 
+                ? m[1].toLowerCase() 
+                : title.toLowerCase()
+                    .replace(/[^a-z0-9\s]/g,'')
+                    .replace(/\s+/g,' ').trim();
             };
 
-            // ── Extract fingerprint from an existing issue body ────────────
             const extractFingerprint = body => {
               const m = body.match(/<!--\s*fp:([^>]+)-->/);
               return m ? m[1].trim() : null;
             };
 
-            // ── No issues found ─────────────────────────────────────────
             if (issueBlocks.length === 0) {
-              console.log('No issues found — code is clean.');
+              console.log('No issues — code is clean.');
               return;
             }
 
-            const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '🔵' };
+            const sevEmoji = {
+              critical:'🔴', high:'🟠',
+              medium:'🟡', low:'🔵'
+            };
 
-            // ── Parse all issues from AI response ─────────────────────────
             const parsed = issueBlocks.map(block => {
-              const t   = block[1];
+              const t = block[1];
               const get = k => {
-                const m = t.match(new RegExp(`${k}:\\s*(.+)`));
+                const m = t.match(
+                  new RegExp(`${k}:\\s*(.+)`));
                 return m ? m[1].trim() : 'Unknown';
               };
-              const sev        = get('severity').toLowerCase();
-              const extraRaw   = get('extra_label').toLowerCase();
-              const extraLabel = validExtraLabels.includes(extraRaw) ? extraRaw : null;
-              const file       = get('file');
-              const category   = get('category');
+              const sev      = get('severity').toLowerCase();
+              const extraRaw = get('extra_label').toLowerCase();
+              const layerRaw = get('layer').toLowerCase();
               return {
                 title:       get('title'),
                 severity:    sev,
-                category,
-                file,
+                category:    get('category'),
+                file:        get('file'),
+                layer: validLayers.includes(layerRaw) 
+                         ? layerRaw : null,
                 description: get('description'),
                 suggestion:  get('suggestion'),
-                extraLabel,
+                extraLabel: validExtraLabels.includes(extraRaw)
+                              ? extraRaw : null,
                 fingerprint: makeFingerprint(get('title')),
               };
             });
 
-            // ── Fetch all AI issues (open and closed) ──────────────────────
-            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              state: 'all',
-              labels: 'flutter-ai-analysis',
-              per_page: 100,
-            });
+            const allIssues = await github.paginate(
+              github.rest.issues.listForRepo, {
+                owner:  context.repo.owner,
+                repo:   context.repo.repo,
+                state:  'all',
+                labels: 'flutter-ai-analysis',
+                per_page: 100,
+              }
+            );
 
-            // ── Extract fingerprints from existing issues ──────────────────
-            // Each AI issue has a hidden <!-- fp:... --> comment in its body
-            const existingFingerprints = new Set();
+            const existingFPs = new Set();
             for (const issue of allIssues) {
               const fp = extractFingerprint(issue.body || '');
-              if (fp) existingFingerprints.add(fp);
+              if (fp) existingFPs.add(fp);
             }
 
-            // ── Step 2: Create new issues, skip if fingerprint already exists
-            let created = 0;
-            let skipped = 0;
+            let created = 0, skipped = 0;
 
             for (const issue of parsed) {
-              // Skip if an issue with the same fingerprint already exists (even if closed)
-              // or if we already created it in this run
-              if (existingFingerprints.has(issue.fingerprint)) {
-                console.log(`Skipping — fingerprint already exists: ${issue.fingerprint}`);
+              if (existingFPs.has(issue.fingerprint)) {
+                console.log(`Skip: ${issue.fingerprint}`);
                 skipped++;
                 continue;
               }
 
-              const emoji      = sevEmoji[issue.severity] || '⚪';
-              const issueTitle = issue.title;
-
-              // Base labels + extra label if AI provided a valid one
-              const labels = ['flutter-ai-analysis', 'ai-generated', issue.severity];
-              if (issue.extraLabel) labels.push(issue.extraLabel);
+              const emoji = sevEmoji[issue.severity] || '⚪';
+              const labels = [
+                'flutter-ai-analysis',
+                'ai-generated',
+                issue.severity,
+              ];
+              if (issue.extraLabel) 
+                labels.push(issue.extraLabel);
+              if (issue.layer) 
+                labels.push(issue.layer);
 
               const body = [
-                // Hidden fingerprint — used for stable matching across scans
-                // DO NOT remove this comment
                 `<!-- fp:${issue.fingerprint} -->`,
                 ``,
                 `## ${emoji} ${issue.title}`,
@@ -379,6 +552,7 @@ jobs:
                 `|---|---|`,
                 `| **Severity** | \`${issue.severity.toUpperCase()}\` |`,
                 `| **Category** | \`${issue.category}\` |`,
+                `| **Layer** | \`${issue.layer || 'unknown'}\` |`,
                 `| **File** | \`${issue.file}\` |`,
                 `| **Commit** | \`${commitSha}\` |`,
                 `| **Analyzed by** | ${provider} |`,
@@ -397,7 +571,10 @@ jobs:
                 `---`,
                 ``,
                 `### ✅ How to close this`,
-                `Fix the problem above and close this issue manually once resolved.`,
+                `Fix the problem above and push to main.`,
+                `The next scan will flag this issue for`,
+                `manual review if it no longer detects`,
+                `the problem. You can then close it manually.`,
                 ``,
                 `_Generated: ${new Date().toUTCString()}_`,
               ].join('\n');
@@ -405,31 +582,34 @@ jobs:
               await github.rest.issues.create({
                 owner:  context.repo.owner,
                 repo:   context.repo.repo,
-                title:  issueTitle,
+                title:  issue.title,
                 body:   body,
                 labels: labels,
               });
-              
-              // Add fingerprint to set to prevent duplicates in the same run
-              existingFingerprints.add(issue.fingerprint);
 
+              existingFPs.add(issue.fingerprint);
               created++;
-              console.log(`Created: ${issueTitle} [fp: ${issue.fingerprint}] [labels: ${labels.join(', ')}]`);
-
-              // Respect GitHub API rate limit
+              console.log(`Created: ${issue.title}`);
               await new Promise(r => setTimeout(r, 500));
             }
 
-            console.log(`Done — Created: ${created}, Skipped (already exists): ${skipped}`);
+            console.log(
+              `Done — Created: ${created}, Skipped: ${skipped}`
+            );
 
-      # ── 8. Save Source Hash ──────────────────────────────────────────────
+      # ── 9. Save source hash ──────────────────────────────────────────────
       - name: Save Source Hash
-        if: steps.source_hash.outputs.changed == 'true' && env.API_FAILED != 'true'
+        if: >
+          steps.source_hash.outputs.changed == 'true' && 
+          env.API_FAILED != 'true'
         run: |
           mkdir -p .github
-          echo "${{ steps.source_hash.outputs.hash }}" > .github/last_scan_hash.txt
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.source_hash.outputs.hash }}" \
+            > .github/last_scan_hash.txt
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "github-actions[bot]@users.noreply.github.com"
           git add .github/last_scan_hash.txt
-          git commit -m "chore: update last scan hash [skip ci]" || echo "No changes to commit"
+          git commit -m "chore: update scan hash [skip ci]" \
+            || echo "Nothing to commit"
           git push
