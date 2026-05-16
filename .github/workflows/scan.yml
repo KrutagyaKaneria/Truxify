@@ -41,7 +41,7 @@ jobs:
       driver:   ${{ steps.changes.outputs.driver }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
@@ -101,7 +101,7 @@ jobs:
       issues:   write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -156,7 +156,7 @@ jobs:
 
       - name: Ensure labels
         if: steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const labels = [
@@ -192,6 +192,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          REPORT_LIMIT=14000
+          MAX_SOURCE_BYTES=6000
+          SOURCE_FILE_LIMIT=6
+
           {
             echo "# Customer App Code Analysis Report"
             echo "## Flutter Analyze Output"
@@ -200,24 +204,36 @@ jobs:
             echo "## pubspec.yaml"
             cat apps/customer/pubspec.yaml
             echo ""
-            echo "## File Structure"
-            find apps/customer/lib -name "*.dart" ! -name "*.g.dart" | sort
-            echo ""
-            echo "## Source Files"
-            find apps/customer/lib -name "*.dart" \
+            echo "## Selected Source Files"
+            included=0
+            while IFS= read -r f; do
+              if [ "$included" -ge "$SOURCE_FILE_LIMIT" ]; then
+                break
+              fi
+
+              size=$(wc -c < "$f")
+              if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
+                echo "### FILE: $f"
+                echo "_Skipped: file too large (${size} bytes)_"
+                echo ""
+                continue
+              fi
+
+              echo "### FILE: $f"
+              echo '```dart'
+              cat "$f"
+              echo '```'
+              echo ""
+              included=$((included + 1))
+            done < <(find apps/customer/lib -name "*.dart" \
               ! -name "*.g.dart" \
               ! -name "*.freezed.dart" \
               ! -name "*.gen.dart" \
-              2>/dev/null | sort | while IFS= read -r f; do
-                echo "### FILE: $f"
-                echo '```dart'
-                cat "$f"
-                echo '```'
-                echo ""
-              done
+              2>/dev/null | sort)
           } > report_full.txt
 
-          head -c 22000 report_full.txt > report.txt
+          head -c "$REPORT_LIMIT" report_full.txt > report.txt
+          echo "Report limit: $REPORT_LIMIT bytes"
           echo "Report size: $(wc -c < report.txt) bytes"
           echo "Files included: $(grep -c '### FILE:' report.txt || true) of $(grep -c '### FILE:' report_full.txt || true)"
 
@@ -227,6 +243,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL:     llama-3.1-8b-instant
         run: |
           set -euo pipefail
 
@@ -278,6 +295,78 @@ jobs:
           $SOURCE"
 
           GEMINI_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+          GROQ_URL="https://api.groq.com/openai/v1/chat/completions"
+
+          parse_retry_delay() {
+            local delay="${1:-}"
+            if [ -z "$delay" ]; then
+              echo 60
+              return
+            fi
+
+            local seconds
+            seconds=$(printf '%s' "$delay" | awk '
+              {
+                value = $0
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                if (value ~ /^[0-9]+(\.[0-9]+)?s$/) {
+                  sub(/s$/, "", value)
+                  print int(value + 0.5)
+                } else if (value ~ /^[0-9]+(\.[0-9]+)?m$/) {
+                  sub(/m$/, "", value)
+                  print int((value * 60) + 0.5)
+                } else if (value ~ /^[0-9]+$/) {
+                  print value + 0
+                } else {
+                  print 60
+                }
+              }')
+
+            if ! printf '%s' "$seconds" | grep -Eq '^[0-9]+$'; then
+              echo 60
+            elif [ "$seconds" -lt 1 ]; then
+              echo 60
+            else
+              echo "$seconds"
+            fi
+          }
+
+          gemini_error_message() {
+            jq -r '.error.message // empty' gemini_out.json 2>/dev/null || true
+          }
+
+          gemini_retry_delay() {
+            jq -r '
+              .error.details[]?
+              | select(."@type" == "type.googleapis.com/google.rpc.RetryInfo")
+              | .retryDelay // empty
+            ' gemini_out.json 2>/dev/null | head -n 1 || true
+          }
+
+          is_gemini_quota_issue() {
+            local status="$1"
+            local message
+            message=$(gemini_error_message | tr '[:upper:]' '[:lower:]')
+
+            if [ "$status" = "429" ]; then
+              return 0
+            fi
+
+            case "$message" in
+              *quota*|*rate\ limit*|*resource\ exhausted*|*free\ tier*|*too\ many\ requests*)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          log_provider_result() {
+            local provider="$1"
+            local status="$2"
+            local retry_count="$3"
+            echo "$provider status: $status (retry count: $retry_count)"
+          }
 
           call_gemini() {
             local KEY="$GEMINI_API_KEY"
@@ -295,57 +384,63 @@ jobs:
             local KEY="$GROQ_API_KEY"
             if [ -z "$KEY" ]; then echo "000"; return; fi
             PAYLOAD=$(jq -n --arg t "$PROMPT" \
-              '{model:"llama3-8b-8192",max_tokens:4096,temperature:0.1,messages:[{role:"user",content:$t}]}')
+              --arg model "$GROQ_MODEL" \
+              '{model:$model,max_tokens:4096,temperature:0.1,messages:[{role:"user",content:$t}]}')
             HTTP_CODE=$(curl -s -o groq_out.json -w "%{http_code}" --max-time 120 \
-              "https://api.groq.com/openai/v1/chat/completions" \
+              "$GROQ_URL" \
               -H "Authorization: Bearer ${KEY}" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" 2>/dev/null) || HTTP_CODE="000"
             echo "$HTTP_CODE"
           }
 
-          echo "Calling Gemini..."
-          STATUS=$(call_gemini)
-          echo "Gemini status: $STATUS"
-
-          if [ "$STATUS" = "200" ]; then
-            TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
-            if [ -n "$TEXT" ]; then
-              echo "$TEXT" > analysis.txt
-              echo "PROVIDER=Gemini 2.0 Flash" >> "$GITHUB_ENV"
-              echo "Gemini succeeded"
-              exit 0
-            fi
-          fi
-
-          if [ "$STATUS" = "429" ] || [ "$STATUS" = "500" ] || [ "$STATUS" = "503" ]; then
-            echo "Gemini transient error $STATUS - waiting 90s and retrying..."
-            sleep 90
+          GEMINI_RETRY_COUNT=0
+          while :; do
+            echo "Calling Gemini (attempt $((GEMINI_RETRY_COUNT + 1))/2)..."
             STATUS=$(call_gemini)
-            echo "Gemini retry status: $STATUS"
+            log_provider_result "Gemini" "$STATUS" "$GEMINI_RETRY_COUNT"
+
             if [ "$STATUS" = "200" ]; then
-              TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
-              if [ -n "$TEXT" ]; then
-                echo "$TEXT" > analysis.txt
-                echo "PROVIDER=Gemini 2.0 Flash (retry)" >> "$GITHUB_ENV"
-                echo "Gemini retry succeeded"
+              GEMINI_TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
+              if [ -n "$GEMINI_TEXT" ]; then
+                echo "$GEMINI_TEXT" > analysis.txt
+                echo "PROVIDER=Gemini 2.0 Flash" >> "$GITHUB_ENV"
+                echo "Gemini succeeded"
                 exit 0
               fi
+              echo "Gemini returned 200 but no usable text"
+              break
             fi
-          fi
 
-          echo "Falling back to Groq..."
+            if is_gemini_quota_issue "$STATUS" && [ "$GEMINI_RETRY_COUNT" -lt 1 ]; then
+              retry_delay=$(gemini_retry_delay)
+              wait_seconds=$(parse_retry_delay "$retry_delay")
+              echo "Gemini quota/rate-limit response detected"
+              echo "Gemini retry delay: ${retry_delay:-not provided}; waiting ${wait_seconds}s before one retry"
+              sleep "$wait_seconds"
+              GEMINI_RETRY_COUNT=$((GEMINI_RETRY_COUNT + 1))
+              continue
+            fi
+
+            echo "Gemini failed with status $STATUS; falling back to Groq"
+            break
+          done
+
+          echo "Falling back to Groq immediately after Gemini failure"
           STATUS=$(call_groq)
-          echo "Groq status: $STATUS"
+          log_provider_result "Groq" "$STATUS" 0
 
           if [ "$STATUS" = "200" ]; then
-            TEXT=$(jq -r '.choices[0].message.content // empty' groq_out.json 2>/dev/null || true)
-            if [ -n "$TEXT" ]; then
-              echo "$TEXT" > analysis.txt
-              echo "PROVIDER=Groq llama3-8b" >> "$GITHUB_ENV"
+            GROQ_TEXT=$(jq -r '.choices[0].message.content // empty' groq_out.json 2>/dev/null || true)
+            if [ -n "$GROQ_TEXT" ]; then
+              echo "$GROQ_TEXT" > analysis.txt
+              echo "PROVIDER=Groq llama-3.1-8b-instant" >> "$GITHUB_ENV"
               echo "Groq succeeded"
               exit 0
             fi
+            echo "Groq returned 200 but no usable text"
+          else
+            echo "Groq failed with status $STATUS"
           fi
 
           echo "All AI providers failed"
@@ -355,7 +450,7 @@ jobs:
 
       - name: Report AI failure as issue
         if: env.AI_FAILED == 'true' && steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const existing = await github.paginate(
@@ -394,7 +489,7 @@ jobs:
 
       - name: Create GitHub issues
         if: env.AI_FAILED != 'true' && steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           PROVIDER:   ${{ env.PROVIDER }}
           COMMIT_SHA: ${{ github.sha }}
@@ -561,7 +656,7 @@ jobs:
       issues:   write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -622,7 +717,7 @@ jobs:
 
       - name: Ensure labels
         if: steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const labels = [
@@ -658,6 +753,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          REPORT_LIMIT=14000
+          MAX_SOURCE_BYTES=6000
+          SOURCE_FILE_LIMIT=6
+
           {
             echo "# Driver App Code Analysis Report"
             echo "## Flutter Analyze Output"
@@ -666,24 +765,36 @@ jobs:
             echo "## pubspec.yaml"
             cat apps/driver/pubspec.yaml
             echo ""
-            echo "## File Structure"
-            find apps/driver/lib -name "*.dart" ! -name "*.g.dart" | sort
-            echo ""
-            echo "## Source Files"
-            find apps/driver/lib -name "*.dart" \
+            echo "## Selected Source Files"
+            included=0
+            while IFS= read -r f; do
+              if [ "$included" -ge "$SOURCE_FILE_LIMIT" ]; then
+                break
+              fi
+
+              size=$(wc -c < "$f")
+              if [ "$size" -gt "$MAX_SOURCE_BYTES" ]; then
+                echo "### FILE: $f"
+                echo "_Skipped: file too large (${size} bytes)_"
+                echo ""
+                continue
+              fi
+
+              echo "### FILE: $f"
+              echo '```dart'
+              cat "$f"
+              echo '```'
+              echo ""
+              included=$((included + 1))
+            done < <(find apps/driver/lib -name "*.dart" \
               ! -name "*.g.dart" \
               ! -name "*.freezed.dart" \
               ! -name "*.gen.dart" \
-              2>/dev/null | sort | while IFS= read -r f; do
-                echo "### FILE: $f"
-                echo '```dart'
-                cat "$f"
-                echo '```'
-                echo ""
-              done
+              2>/dev/null | sort)
           } > report_full.txt
 
-          head -c 22000 report_full.txt > report.txt
+          head -c "$REPORT_LIMIT" report_full.txt > report.txt
+          echo "Report limit: $REPORT_LIMIT bytes"
           echo "Report size: $(wc -c < report.txt) bytes"
           echo "Files included: $(grep -c '### FILE:' report.txt || true) of $(grep -c '### FILE:' report_full.txt || true)"
 
@@ -693,6 +804,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL:     llama-3.1-8b-instant
         run: |
           set -euo pipefail
 
@@ -744,6 +856,78 @@ jobs:
           $SOURCE"
 
           GEMINI_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+          GROQ_URL="https://api.groq.com/openai/v1/chat/completions"
+
+          parse_retry_delay() {
+            local delay="${1:-}"
+            if [ -z "$delay" ]; then
+              echo 60
+              return
+            fi
+
+            local seconds
+            seconds=$(printf '%s' "$delay" | awk '
+              {
+                value = $0
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                if (value ~ /^[0-9]+(\.[0-9]+)?s$/) {
+                  sub(/s$/, "", value)
+                  print int(value + 0.5)
+                } else if (value ~ /^[0-9]+(\.[0-9]+)?m$/) {
+                  sub(/m$/, "", value)
+                  print int((value * 60) + 0.5)
+                } else if (value ~ /^[0-9]+$/) {
+                  print value + 0
+                } else {
+                  print 60
+                }
+              }')
+
+            if ! printf '%s' "$seconds" | grep -Eq '^[0-9]+$'; then
+              echo 60
+            elif [ "$seconds" -lt 1 ]; then
+              echo 60
+            else
+              echo "$seconds"
+            fi
+          }
+
+          gemini_error_message() {
+            jq -r '.error.message // empty' gemini_out.json 2>/dev/null || true
+          }
+
+          gemini_retry_delay() {
+            jq -r '
+              .error.details[]?
+              | select(."@type" == "type.googleapis.com/google.rpc.RetryInfo")
+              | .retryDelay // empty
+            ' gemini_out.json 2>/dev/null | head -n 1 || true
+          }
+
+          is_gemini_quota_issue() {
+            local status="$1"
+            local message
+            message=$(gemini_error_message | tr '[:upper:]' '[:lower:]')
+
+            if [ "$status" = "429" ]; then
+              return 0
+            fi
+
+            case "$message" in
+              *quota*|*rate\ limit*|*resource\ exhausted*|*free\ tier*|*too\ many\ requests*)
+                return 0
+                ;;
+            esac
+
+            return 1
+          }
+
+          log_provider_result() {
+            local provider="$1"
+            local status="$2"
+            local retry_count="$3"
+            echo "$provider status: $status (retry count: $retry_count)"
+          }
 
           call_gemini() {
             local KEY="$GEMINI_API_KEY"
@@ -761,57 +945,63 @@ jobs:
             local KEY="$GROQ_API_KEY"
             if [ -z "$KEY" ]; then echo "000"; return; fi
             PAYLOAD=$(jq -n --arg t "$PROMPT" \
-              '{model:"llama3-8b-8192",max_tokens:4096,temperature:0.1,messages:[{role:"user",content:$t}]}')
+              --arg model "$GROQ_MODEL" \
+              '{model:$model,max_tokens:4096,temperature:0.1,messages:[{role:"user",content:$t}]}')
             HTTP_CODE=$(curl -s -o groq_out.json -w "%{http_code}" --max-time 120 \
-              "https://api.groq.com/openai/v1/chat/completions" \
+              "$GROQ_URL" \
               -H "Authorization: Bearer ${KEY}" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" 2>/dev/null) || HTTP_CODE="000"
             echo "$HTTP_CODE"
           }
 
-          echo "Calling Gemini..."
-          STATUS=$(call_gemini)
-          echo "Gemini status: $STATUS"
-
-          if [ "$STATUS" = "200" ]; then
-            TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
-            if [ -n "$TEXT" ]; then
-              echo "$TEXT" > analysis.txt
-              echo "PROVIDER=Gemini 2.0 Flash" >> "$GITHUB_ENV"
-              echo "Gemini succeeded"
-              exit 0
-            fi
-          fi
-
-          if [ "$STATUS" = "429" ] || [ "$STATUS" = "500" ] || [ "$STATUS" = "503" ]; then
-            echo "Gemini transient error $STATUS - waiting 90s and retrying..."
-            sleep 90
+          GEMINI_RETRY_COUNT=0
+          while :; do
+            echo "Calling Gemini (attempt $((GEMINI_RETRY_COUNT + 1))/2)..."
             STATUS=$(call_gemini)
-            echo "Gemini retry status: $STATUS"
+            log_provider_result "Gemini" "$STATUS" "$GEMINI_RETRY_COUNT"
+
             if [ "$STATUS" = "200" ]; then
-              TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
-              if [ -n "$TEXT" ]; then
-                echo "$TEXT" > analysis.txt
-                echo "PROVIDER=Gemini 2.0 Flash (retry)" >> "$GITHUB_ENV"
-                echo "Gemini retry succeeded"
+              GEMINI_TEXT=$(jq -r '.candidates[0].content.parts[0].text // empty' gemini_out.json 2>/dev/null || true)
+              if [ -n "$GEMINI_TEXT" ]; then
+                echo "$GEMINI_TEXT" > analysis.txt
+                echo "PROVIDER=Gemini 2.0 Flash" >> "$GITHUB_ENV"
+                echo "Gemini succeeded"
                 exit 0
               fi
+              echo "Gemini returned 200 but no usable text"
+              break
             fi
-          fi
 
-          echo "Falling back to Groq..."
+            if is_gemini_quota_issue "$STATUS" && [ "$GEMINI_RETRY_COUNT" -lt 1 ]; then
+              retry_delay=$(gemini_retry_delay)
+              wait_seconds=$(parse_retry_delay "$retry_delay")
+              echo "Gemini quota/rate-limit response detected"
+              echo "Gemini retry delay: ${retry_delay:-not provided}; waiting ${wait_seconds}s before one retry"
+              sleep "$wait_seconds"
+              GEMINI_RETRY_COUNT=$((GEMINI_RETRY_COUNT + 1))
+              continue
+            fi
+
+            echo "Gemini failed with status $STATUS; falling back to Groq"
+            break
+          done
+
+          echo "Falling back to Groq immediately after Gemini failure"
           STATUS=$(call_groq)
-          echo "Groq status: $STATUS"
+          log_provider_result "Groq" "$STATUS" 0
 
           if [ "$STATUS" = "200" ]; then
-            TEXT=$(jq -r '.choices[0].message.content // empty' groq_out.json 2>/dev/null || true)
-            if [ -n "$TEXT" ]; then
-              echo "$TEXT" > analysis.txt
-              echo "PROVIDER=Groq llama3-8b" >> "$GITHUB_ENV"
+            GROQ_TEXT=$(jq -r '.choices[0].message.content // empty' groq_out.json 2>/dev/null || true)
+            if [ -n "$GROQ_TEXT" ]; then
+              echo "$GROQ_TEXT" > analysis.txt
+              echo "PROVIDER=Groq llama-3.1-8b-instant" >> "$GITHUB_ENV"
               echo "Groq succeeded"
               exit 0
             fi
+            echo "Groq returned 200 but no usable text"
+          else
+            echo "Groq failed with status $STATUS"
           fi
 
           echo "All AI providers failed"
@@ -821,7 +1011,7 @@ jobs:
 
       - name: Report AI failure as issue
         if: env.AI_FAILED == 'true' && steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const existing = await github.paginate(
@@ -860,7 +1050,7 @@ jobs:
 
       - name: Create GitHub issues
         if: env.AI_FAILED != 'true' && steps.hash.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           PROVIDER:   ${{ env.PROVIDER }}
           COMMIT_SHA: ${{ github.sha }}
