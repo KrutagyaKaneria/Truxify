@@ -8,9 +8,8 @@
 #   1a — flutter analyze        : type errors, null-safety, lints
 #   1b — Semgrep OSS            : pattern rules, anti-patterns, security
 #   1c — Dart Code Metrics      : complexity, naming metrics, structure
-#   2  — Qodana                 : full-repo deep scan by JetBrains
-#   3  — AI (Gemini + Groq)     : PARALLEL per file, merged + deduped
-#   4  — Dedup engine           : fp5 fingerprint, zero duplicates
+#   2  — AI (Gemini + Groq + OpenRouter Fallback) : PARALLEL per file, merged + deduped
+#   3  — Dedup engine           : fp5 fingerprint, zero duplicates
 #
 # FINGERPRINT v5 = sha256(app | file | code | line)
 #   - Source-independent: same bug from different tools = one issue
@@ -36,6 +35,10 @@ inputs:
     default: ''
   groq-api-key:
     description: 'Groq API key'
+    required: false
+    default: ''
+  openrouter-api-key:
+    description: 'OpenRouter API key'
     required: false
     default: ''
   force:
@@ -219,33 +222,6 @@ runs:
         echo "DCM output: $(wc -l < "$OUT") lines"
 
     # ════════════════════════════════════════════════════════════════════════════
-    # LAYER 2 — Qodana deep scan
-    # ════════════════════════════════════════════════════════════════════════════
-
-    - name: 'Layer 2: Qodana deep scan'
-      if: steps.hash.outputs.changed == 'true'
-      uses: JetBrains/qodana-action@v2024.3
-      with:
-        args: "--source-directory,apps/${{ inputs.app-name }},--results-dir,${{ runner.temp }}/qodana-${{ inputs.app-name }},--report-dir,${{ runner.temp }}/qodana-${{ inputs.app-name }}-report"
-        artifact-name: "qodana-${{ inputs.app-name }}-report"
-        upload-result: false
-      continue-on-error: true
-
-    - name: Export Qodana results
-      if: steps.hash.outputs.changed == 'true'
-      shell: bash
-      run: |
-        APP="${{ inputs.app-name }}"
-        SARIF="${{ runner.temp }}/qodana-${APP}/qodana.sarif.json"
-        if [ -f "$SARIF" ]; then
-          cp "$SARIF" "qodana_${APP}.json"
-          echo "Qodana: $(jq '.runs[0].results | length' "qodana_${APP}.json") findings"
-        else
-          echo '{"runs":[{"results":[]}]}' > "qodana_${APP}.json"
-          echo "Qodana: no results file (errored or no findings)"
-        fi
-
-    # ════════════════════════════════════════════════════════════════════════════
     # LAYER 3 — AI: Gemini + Groq run IN PARALLEL per file
     #
     # Prompt is built in Python (string concatenation, not f-strings) and
@@ -258,12 +234,13 @@ runs:
     # before appending to the master list.
     # ════════════════════════════════════════════════════════════════════════════
 
-    - name: 'Layer 3: AI parallel semantic analysis (Gemini + Groq)'
+    - name: 'Layer 2: AI parallel semantic analysis (Gemini + Groq + OpenRouter Fallback)'
       if: steps.hash.outputs.changed == 'true'
       shell: bash
       env:
         GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
         GROQ_API_KEY: ${{ inputs.groq-api-key }}
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
       run: |
         set -euo pipefail
 
@@ -295,6 +272,19 @@ runs:
           s=$(curl -s -o "$out" -w "%{http_code}" --max-time 90 \
             "$GROQ_URL" \
             -H "Authorization: Bearer ${GROQ_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data-binary "@${payload_file}" 2>/dev/null) || s="000"
+          echo "$s" > "$status_file"
+        }
+
+        call_openrouter_to_file() {
+          local payload_file="$1" out="$2" status_file="$3"
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then echo "000" > "$status_file"; return; fi
+          local s
+          s=$(curl -s -o "$out" -w "%{http_code}" --max-time 90 \
+            "https://openrouter.ai/api/v1/chat/completions" \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            -H "HTTP-Referer: https://github.com/KanishJebaMathewM/Truxify" \
             -H "Content-Type: application/json" \
             --data-binary "@${payload_file}" 2>/dev/null) || s="000"
           echo "$s" > "$status_file"
@@ -432,13 +422,29 @@ runs:
           G_HTTP=$(cat "$G_STATUS" 2>/dev/null || echo "000")
           R_HTTP=$(cat "$R_STATUS" 2>/dev/null || echo "000")
 
-          # ── Gemini quota backoff + retry once ───────────────────────────────
-          if is_quota_err "$G_RAW" || [ "$G_HTTP" = "429" ]; then
-            WAIT=$(get_retry_wait "$G_RAW")
-            echo "  Gemini quota — waiting ${WAIT}s then retrying..." >&2
-            sleep "$WAIT"
-            call_gemini_to_file "$GP_FILE" "$G_RAW" "$G_STATUS"
-            G_HTTP=$(cat "$G_STATUS" 2>/dev/null || echo "000")
+          # ── Gemini fallback to OpenRouter / backoff ─────────────────────────
+          if is_quota_err "$G_RAW" || [ "$G_HTTP" != "200" ]; then
+            if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+              echo "  Gemini failed/quota exceeded (HTTP $G_HTTP) — trying OpenRouter fallback..." >&2
+              OP_FILE="_op_${APP}_${IDX}.json"
+              jq -n --rawfile prompt "$PROMPT_FILE" \
+                --arg model "google/gemini-3-flash-preview" \
+                '{model:$model,max_tokens:2048,temperature:0.05,messages:[{role:"user",content:$prompt}]}' \
+                > "$OP_FILE"
+
+              call_openrouter_to_file "$OP_FILE" "$G_RAW" "$G_STATUS"
+              G_HTTP=$(cat "$G_STATUS" 2>/dev/null || echo "000")
+              rm -f "$OP_FILE"
+            fi
+
+            # If it's still not 200 (fallback failed/missing), do standard retry
+            if [ "$G_HTTP" != "200" ]; then
+              WAIT=$(get_retry_wait "$G_RAW")
+              echo "  Gemini / OpenRouter failed (HTTP $G_HTTP) — waiting ${WAIT}s then retrying..." >&2
+              sleep "$WAIT"
+              call_gemini_to_file "$GP_FILE" "$G_RAW" "$G_STATUS"
+              G_HTTP=$(cat "$G_STATUS" 2>/dev/null || echo "000")
+            fi
           fi
 
           # ── Groq rate limit backoff + retry once ────────────────────────────
@@ -455,7 +461,11 @@ runs:
           > "$G_TEXT"; > "$R_TEXT"
 
           if [ "$G_HTTP" = "200" ]; then
-            jq -r '.candidates[0].content.parts[0].text // empty' "$G_RAW" > "$G_TEXT" 2>/dev/null || true
+            if jq -e '.candidates[0].content.parts[0].text' "$G_RAW" >/dev/null 2>&1; then
+              jq -r '.candidates[0].content.parts[0].text // empty' "$G_RAW" > "$G_TEXT" 2>/dev/null || true
+            else
+              jq -r '.choices[0].message.content // empty' "$G_RAW" > "$G_TEXT" 2>/dev/null || true
+            fi
           fi
           if [ "$R_HTTP" = "200" ]; then
             jq -r '.choices[0].message.content // empty' "$R_RAW" > "$R_TEXT" 2>/dev/null || true
@@ -774,40 +784,6 @@ runs:
                     extraLabels: ['dart-metrics'],
                   });
                 }
-              }
-            }
-          }
-
-          // ════════════════════════════════════════════════════════════════════
-          // SOURCE C: Qodana SARIF
-          // ════════════════════════════════════════════════════════════════════
-          const qodanaFile = 'qodana_' + APP + '.json';
-          if (fs.existsSync(qodanaFile)) {
-            let sarif;
-            try { sarif = JSON.parse(fs.readFileSync(qodanaFile, 'utf8')); } catch (e) { sarif = null; }
-            if (sarif) {
-              const results = sarif.runs?.[0]?.results || [];
-              console.log('Qodana: ' + results.length + ' findings');
-              const rules = {};
-              for (const r of (sarif.runs?.[0]?.tool?.driver?.rules || [])) rules[r.id] = r;
-
-              for (const r of results) {
-                const rule = rules[r.ruleId] || {};
-                const loc  = r.locations?.[0]?.physicalLocation;
-                const sev  = r.level === 'error' ? 'high'
-                  : r.level === 'warning' ? 'medium' : 'low';
-                await processIssue({
-                  file:        loc?.artifactLocation?.uri || '',
-                  line:        loc?.region?.startLine || '',
-                  category:    'Quality',
-                  code:        'CQ',
-                  sev,
-                  title:       (rule.shortDescription?.text || r.ruleId || 'qodana issue').substring(0, 60),
-                  desc:        r.message?.text || rule.fullDescription?.text || 'Qodana finding',
-                  fix:         rule.help?.text || '',
-                  source:      'qodana',
-                  extraLabels: ['qodana'],
-                });
               }
             }
           }
