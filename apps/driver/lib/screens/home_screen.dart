@@ -138,7 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!_isDestinationExpanded) return;
     setState(() {
-      _destination = DestinationPickResult(address: 'Pinned location', point: point);
+      _destination =
+          DestinationPickResult(address: 'Pinned location', point: point);
       _searchController.text = _destination!.address;
       _isDestinationExpanded = false;
       final routePoints = <ll.LatLng>[_currentLocation, point];
@@ -151,7 +152,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openDestinationPicker() async {
     if (!_isOnline) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please go online to search destinations')),
+        const SnackBar(
+            content: Text('Please go online to search destinations')),
       );
       return;
     }
@@ -246,11 +248,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Bottom Controller Card
             Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: SafeArea(
                 top: false,
+                minimum: EdgeInsets.zero,
                 child: _destination == null
                     ? _buildBottomSheet(context)
                     : _buildActiveTripSheet(context),
@@ -345,9 +348,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (day == null || year == null) return null;
 
     final monthMap = <String, int>{
-      'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
-      'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
-      'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+      'jan': 1,
+      'feb': 2,
+      'mar': 3,
+      'apr': 4,
+      'may': 5,
+      'jun': 6,
+      'jul': 7,
+      'aug': 8,
+      'sep': 9,
+      'oct': 10,
+      'nov': 11,
+      'dec': 12,
     };
     final month = monthMap[parts[1].toLowerCase()];
     if (month == null) return null;
@@ -355,7 +367,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return DateTime(year, month, day);
   }
 
-  Widget _buildMapBody(BuildContext context, {required bool showDestinationChip}) {
+  Widget _buildMapBody(BuildContext context,
+      {required bool showDestinationChip}) {
     if (_destination == null) {
       return FlutterMap(
         mapController: _mapController,
@@ -377,7 +390,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return FutureBuilder<List<ll.LatLng>>(
-      future: _routeFuture ?? Future.value(<ll.LatLng>[_currentLocation, _destination!.point]),
+      future: _routeFuture ??
+          Future.value(<ll.LatLng>[_currentLocation, _destination!.point]),
       builder: (context, snap) {
         final routePoints = (snap.connectionState == ConnectionState.done &&
                 snap.hasData &&
@@ -434,7 +448,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 34,
                         height: 34,
                         alignment: Alignment.center,
-                        child: _RouteCheckpointMarker(label: '${entry.key + 1}'),
+                        child:
+                            _RouteCheckpointMarker(label: '${entry.key + 1}'),
                       ),
                     ),
                 Marker(
@@ -487,7 +502,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final totalSegments = routePoints.length - 1;
     final indexes = <int>{};
     for (var step = 1; step <= 3; step++) {
-      final index = ((totalSegments * step) / 4).round().clamp(1, totalSegments - 1);
+      final index =
+          ((totalSegments * step) / 4).round().clamp(1, totalSegments - 1);
       indexes.add(index);
     }
 
@@ -583,8 +599,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.dmSans(
                           fontSize: 13,
-                          fontWeight: _destination == null ? FontWeight.normal : FontWeight.w600,
-                          color: _destination == null ? TruxifyColors.hintText : TruxifyColors.primaryText,
+                          fontWeight: _destination == null
+                              ? FontWeight.normal
+                              : FontWeight.w600,
+                          color: _destination == null
+                              ? TruxifyColors.hintText
+                              : TruxifyColors.primaryText,
                         ),
                       ),
                     ),
@@ -602,7 +622,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
         border: Border.all(color: TruxifyColors.border),
         boxShadow: [
           BoxShadow(
@@ -617,17 +639,6 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: TruxifyColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
           // Shift Info Row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -704,7 +715,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildShiftMetric({required IconData icon, required String value, required String label}) {
+  Widget _buildShiftMetric(
+      {required IconData icon, required String value, required String label}) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
@@ -761,7 +773,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isTripStarted ? const Color(0xFFEAFCEE) : TruxifyColors.accentLight,
+                  color: _isTripStarted
+                      ? const Color(0xFFEAFCEE)
+                      : TruxifyColors.accentLight,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -769,7 +783,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: GoogleFonts.dmSans(
                     fontSize: 9,
                     fontWeight: FontWeight.bold,
-                    color: _isTripStarted ? TruxifyColors.success : TruxifyColors.accent,
+                    color: _isTripStarted
+                        ? TruxifyColors.success
+                        : TruxifyColors.accent,
                   ),
                 ),
               ),
@@ -811,11 +827,15 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   'Next: Dhule Plaza in 42 km',
-                  style: GoogleFonts.dmSans(fontSize: 11, color: TruxifyColors.secondaryText),
+                  style: GoogleFonts.dmSans(
+                      fontSize: 11, color: TruxifyColors.secondaryText),
                 ),
                 Text(
                   '25% complete',
-                  style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.bold, color: TruxifyColors.success),
+                  style: GoogleFonts.dmSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: TruxifyColors.success),
                 ),
               ],
             ),
@@ -825,7 +845,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const LinearProgressIndicator(
                 value: 0.25,
                 backgroundColor: TruxifyColors.border,
-                valueColor: AlwaysStoppedAnimation<Color>(TruxifyColors.success),
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(TruxifyColors.success),
                 minHeight: 6,
               ),
             ),
@@ -919,7 +940,8 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double maxDragWidth = constraints.maxWidth - 50; // button width helper
+        final double maxDragWidth =
+            constraints.maxWidth - 50; // button width helper
         return Container(
           height: 52,
           width: double.infinity,
@@ -951,7 +973,9 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                   onHorizontalDragUpdate: (details) {
                     if (_confirmed) return;
                     setState(() {
-                      _dragProgress = (_dragProgress + (details.delta.dx / maxDragWidth)).clamp(0.0, 1.0);
+                      _dragProgress =
+                          (_dragProgress + (details.delta.dx / maxDragWidth))
+                              .clamp(0.0, 1.0);
                     });
                   },
                   onHorizontalDragEnd: (details) {
@@ -991,7 +1015,9 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                       ],
                     ),
                     child: Icon(
-                      _confirmed ? Icons.check_rounded : Icons.chevron_right_rounded,
+                      _confirmed
+                          ? Icons.check_rounded
+                          : Icons.chevron_right_rounded,
                       color: widget.foregroundColor,
                       size: 20,
                     ),
@@ -1089,7 +1115,8 @@ class _PulsingLocationDot extends StatefulWidget {
   State<_PulsingLocationDot> createState() => _PulsingLocationDotState();
 }
 
-class _PulsingLocationDotState extends State<_PulsingLocationDot> with SingleTickerProviderStateMixin {
+class _PulsingLocationDotState extends State<_PulsingLocationDot>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -1119,7 +1146,8 @@ class _PulsingLocationDotState extends State<_PulsingLocationDot> with SingleTic
               width: 14 + (16 * _controller.value),
               height: 14 + (16 * _controller.value),
               decoration: BoxDecoration(
-                color: TruxifyColors.success.withValues(alpha: 1.0 - _controller.value),
+                color: TruxifyColors.success
+                    .withValues(alpha: 1.0 - _controller.value),
                 shape: BoxShape.circle,
               ),
             ),
