@@ -148,6 +148,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value.isNotEmpty && index < 3) {
                       _otpFocusNodes[index + 1].requestFocus();
                     }
+                     if (value.isEmpty && index > 0) {
+                      _otpFocusNodes[index - 1].requestFocus();
+                    }
                   },
                 ),
               ),
