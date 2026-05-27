@@ -40,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isRefreshingLocation = false;
   String? _currentLocationText = _currentLocationLabel;
   bool _isTripStarted = false;
+  bool _showStatusCard = true;
 
   @override
   void dispose() {
@@ -232,9 +233,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             // Recenter FAB (floated above bottom cards)
-            Positioned(
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
               right: 16,
-              bottom: 235,
+              bottom: _showStatusCard ? (_destination == null ? 220 : 270) : 32,
               child: FloatingActionButton(
                 heroTag: 'driver-home-recenter',
                 onPressed: _centerMapOnCurrentLocation,
@@ -254,9 +257,20 @@ class _HomeScreenState extends State<HomeScreen> {
               child: SafeArea(
                 top: false,
                 minimum: EdgeInsets.zero,
-                child: _destination == null
-                    ? _buildBottomSheet(context)
-                    : _buildActiveTripSheet(context),
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 300),
+                  offset: _showStatusCard ? Offset.zero : const Offset(0, 1.2),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showStatusCard = !_showStatusCard;
+                      });
+                    },
+                    child: _destination == null
+                        ? _buildBottomSheet(context)
+                        : _buildActiveTripSheet(context),
+                  ),
+                ),
               ),
             ),
           ],
@@ -378,7 +392,19 @@ class _HomeScreenState extends State<HomeScreen> {
           interactionOptions: const InteractionOptions(
             flags: InteractiveFlag.all,
           ),
-          onTap: (tap, point) => _onMapTap(point),
+          onTap: (tapPosition, point) {
+            setState(() {
+              _showStatusCard = !_showStatusCard;
+            });
+            _onMapTap(point);
+          },
+          onPositionChanged: (position, hasGesture) {
+            if (hasGesture && _showStatusCard) {
+              setState(() {
+                _showStatusCard = false;
+              });
+            }
+          },
         ),
         children: [
           TileLayer(
