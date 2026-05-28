@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:freightfair/theme/app_theme.dart';
 
 import '../data/mock_data.dart';
 import '../models/app_models.dart';
@@ -22,8 +23,12 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('12 trucks found'),
-        leading: IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.arrow_back_rounded)),
-        actions: [IconButton(onPressed: () {}, icon: const Icon(Icons.sort_rounded))],
+        leading: IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back_rounded)),
+        actions: [
+          IconButton(onPressed: () {}, icon: const Icon(Icons.sort_rounded))
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -37,9 +42,34 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
               itemBuilder: (context, index) {
                 final selected = index == _selectedSort;
                 return ChoiceChip(
-                  label: Text(_sortChips[index]),
+                  label: Text(
+                    _sortChips[index],
+                    style: TextStyle(
+                      color: selected
+                          ? Colors.white
+                          : Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white70
+                              : FreightFairColors.primaryText,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   selected: selected,
                   onSelected: (_) => setState(() => _selectedSort = index),
+                  selectedColor: FreightFairColors.accent,
+                  backgroundColor:
+                      Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF2A2A2A)
+                          : Colors.white,
+                  side: BorderSide(
+                    color: selected
+                        ? FreightFairColors.accent
+                        : FreightFairColors.border,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  showCheckmark: false,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                 );
               },
             ),
@@ -64,4 +94,3 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
     );
   }
 }
-
