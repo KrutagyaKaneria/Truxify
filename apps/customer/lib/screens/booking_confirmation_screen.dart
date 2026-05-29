@@ -181,7 +181,15 @@ class _SuccessPanel extends StatelessWidget {
               children: [
                 const Icon(Icons.check_circle_rounded, color: FreightFairColors.accentDark, size: 58),
                 const SizedBox(height: 10),
-                Text('Booking Confirmed! 🎉', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                Text(
+  'Booking Confirmed! 🎉',
+  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+    fontWeight: FontWeight.w800,
+    color: Theme.of(context).brightness == Brightness.dark
+        ? FreightFairColors.darkAccentLight
+        : FreightFairColors.primaryText,
+  ),
+),
                 const SizedBox(height: 4),
                 Text('Order ID: #FF20241205', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: FreightFairColors.adaptiveSecondaryText(context))),
               ],
