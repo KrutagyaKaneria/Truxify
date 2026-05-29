@@ -9,6 +9,7 @@ import '../widgets/app_logo.dart';
 import '../widgets/app_page_route.dart';
 import '../widgets/shipment_card.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/recent_route_card.dart';
 import 'live_tracking_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -128,7 +129,7 @@ class HomeScreen extends StatelessWidget {
             ...mockRecentRoutes.map(
               (route) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: _RecentRouteCard(
+                child: RecentRouteCard(
                   route: route,
                   onRebook: () => controller.openFindTrucks(draft: _draftForRoute(route)),
                 ),
@@ -146,48 +147,3 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class _RecentRouteCard extends StatelessWidget {
-  const _RecentRouteCard({required this.route, required this.onRebook});
-
-  final RouteCardData route;
-  final VoidCallback onRebook;
-
-  @override
-  Widget build(BuildContext context) {
-    return InfoCard(
-      child: Row(
-        children: [
-          const Icon(Icons.route_rounded, color: FreightFairColors.accentDark),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(route.route, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('${route.pickup} to ${route.drop}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: FreightFairColors.adaptiveSecondaryText(context))),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          _RecentRouteAction(onPressed: onRebook),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecentRouteAction extends StatelessWidget {
-  const _RecentRouteAction({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 14)),
-      child: const Text('Rebook'),
-    );
-  }
-}
