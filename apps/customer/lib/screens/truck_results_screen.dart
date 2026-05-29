@@ -22,7 +22,7 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('12 trucks found'),
+        title: Text('${mockTruckResults.length} trucks found'),
         leading: IconButton(
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.arrow_back_rounded)),
