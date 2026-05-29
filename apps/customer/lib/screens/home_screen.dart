@@ -106,7 +106,7 @@ class HomeScreen extends StatelessWidget {
                     shipment: shipment,
                     onTap: () {
                       Navigator.of(context).push(
-                        AppPageRoute(builder: (_) => LiveTrackingScreen(orderId: index == 0 ? '#FF20241205' : '#FF20241198')),
+                        AppPageRoute(builder: (_) => LiveTrackingScreen(orderId: mockActiveOrders[index].orderId)),
                       );
                     },
                   );
