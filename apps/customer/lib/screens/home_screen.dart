@@ -44,6 +44,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = FreightFairScope.of(context);
     final now = DateTime.now();
+    final customerFirstName = mockCustomerName.split(' ').first;
     final greeting = _greetingFor(now);
 
     return Scaffold(
@@ -85,7 +86,7 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$greeting, Karthik 👋', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+            Text('$greeting, $customerFirstName 👋', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             Text(
               DateFormat('EEEE, d MMMM yyyy').format(now),
