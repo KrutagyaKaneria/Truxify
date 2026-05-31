@@ -209,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F3F3),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -244,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: FloatingActionButton(
                 heroTag: 'driver-home-recenter',
                 onPressed: _centerMapOnCurrentLocation,
-                backgroundColor: Colors.white,
+                backgroundColor: Theme.of(context).colorScheme.surface,
                 foregroundColor: TruxifyColors.accent,
                 elevation: 4,
                 shape: const CircleBorder(),
@@ -285,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildActiveNavigationHeader(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: TruxifyColors.border),
         boxShadow: [
@@ -322,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: GoogleFonts.dmSans(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: TruxifyColors.primaryText,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ],
@@ -541,7 +541,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSearchCard(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: TruxifyColors.border),
         boxShadow: [
@@ -593,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: GoogleFonts.dmSans(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: TruxifyColors.primaryText,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           ),
@@ -606,10 +606,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     color: TruxifyColors.accent,
                                   ),
                                 )
-                              : const Icon(
+                              : Icon(
                                   Icons.refresh_rounded,
                                   size: 16,
-                                  color: TruxifyColors.hintText,
+                                  color: TruxifyColors.adaptiveSecondaryText(
+                                      context),
                                 ),
                         ],
                       ),
@@ -649,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBottomSheet(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(20),
         ),
@@ -694,7 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: TruxifyColors.primaryText,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ],
@@ -706,7 +707,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'Radar active. Looking for load assignments near Surat Yard...',
             style: GoogleFonts.dmSans(
               fontSize: 11,
-              color: TruxifyColors.secondaryText,
+              color: TruxifyColors.adaptiveSecondaryText(context),
             ),
           ),
           const SizedBox(height: 16),
@@ -748,7 +749,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F7F7),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Theme.of(context).colorScheme.surfaceContainerHighest
+            : const Color(0xFFF9F7F7),
         border: Border.all(color: TruxifyColors.border),
         borderRadius: BorderRadius.circular(12),
       ),
@@ -761,14 +764,14 @@ class _HomeScreenState extends State<HomeScreen> {
             style: GoogleFonts.dmSans(
               fontSize: 14,
               fontWeight: FontWeight.bold,
-              color: TruxifyColors.primaryText,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           Text(
             label,
             style: GoogleFonts.dmSans(
               fontSize: 9,
-              color: TruxifyColors.hintText,
+              color: TruxifyColors.adaptiveSecondaryText(context),
             ),
           ),
         ],
@@ -780,7 +783,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final routeStr = _destination?.address ?? 'Destination';
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: TruxifyColors.border),
         boxShadow: [
@@ -823,7 +826,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'GJ-05-BY-9898 · Tata Signa',
                   style: GoogleFonts.dmSans(
                     fontSize: 11,
-                    color: TruxifyColors.hintText,
+                    color: TruxifyColors.adaptiveSecondaryText(context),
                   ),
                 ),
               ),
@@ -835,7 +838,7 @@ class _HomeScreenState extends State<HomeScreen> {
             style: GoogleFonts.dmSans(
               fontSize: 15,
               fontWeight: FontWeight.bold,
-              color: TruxifyColors.primaryText,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 12),
@@ -870,9 +873,11 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 6),
             ClipRRect(
               borderRadius: BorderRadius.circular(3),
-              child: const LinearProgressIndicator(
+              child: LinearProgressIndicator(
                 value: 0.25,
-                backgroundColor: TruxifyColors.border,
+                backgroundColor: Theme.of(context).brightness == Brightness.dark
+                    ? TruxifyColors.darkBorder
+                    : TruxifyColors.border,
                 valueColor:
                     AlwaysStoppedAnimation<Color>(TruxifyColors.success),
                 minHeight: 6,
@@ -905,7 +910,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: TruxifyColors.hintText,
+                      color: TruxifyColors.adaptiveSecondaryText(context),
                     ),
                   ),
                 ),
@@ -925,7 +930,7 @@ class _HomeScreenState extends State<HomeScreen> {
           label,
           style: GoogleFonts.dmSans(
             fontSize: 10,
-            color: TruxifyColors.hintText,
+            color: TruxifyColors.adaptiveSecondaryText(context),
           ),
         ),
         const SizedBox(height: 2),
@@ -934,7 +939,7 @@ class _HomeScreenState extends State<HomeScreen> {
           style: GoogleFonts.dmSans(
             fontSize: 13,
             fontWeight: FontWeight.bold,
-            color: TruxifyColors.primaryText,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],

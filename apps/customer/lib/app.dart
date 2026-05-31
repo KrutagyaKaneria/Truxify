@@ -19,6 +19,7 @@ class _TruxifyAppState extends State<TruxifyApp> {
     super.initState();
     _controller = TruxifyController();
     _controller.addListener(_onControllerChanged);
+    _controller.loadThemeMode();
   }
 
   void _onControllerChanged() {
@@ -41,7 +42,7 @@ class _TruxifyAppState extends State<TruxifyApp> {
         title: 'Truxify',
         theme: TruxifyTheme.light(),
         darkTheme: TruxifyTheme.dark(),
-        themeMode: _controller.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+        themeMode: _controller.themeMode,
         home: const SplashScreen(),
       ),
     );

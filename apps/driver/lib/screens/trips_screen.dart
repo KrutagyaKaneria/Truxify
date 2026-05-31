@@ -18,9 +18,15 @@ class TripsScreen extends StatefulWidget {
 
 class _TripsScreenState extends State<TripsScreen> {
   int _selectedChipIndex = 0; // 0: All, 1: Active, 2: Completed, 3: Cancelled
-  int _selectedSortIndex = 0; // 0: Newest, 1: Oldest, 2: Highest, 3: Lowest, 4: By status
+  int _selectedSortIndex =
+      0; // 0: Newest, 1: Oldest, 2: Highest, 3: Lowest, 4: By status
 
-  final List<String> _statusFilters = ['All', 'Active', 'Completed', 'Cancelled'];
+  final List<String> _statusFilters = [
+    'All',
+    'Active',
+    'Completed',
+    'Cancelled'
+  ];
 
   List<Trip> _getFilteredAndSortedTrips() {
     List<Trip> trips = List.from(mockTrips);
@@ -39,10 +45,12 @@ class _TripsScreenState extends State<TripsScreen> {
         trips = trips.reversed.toList();
         break;
       case 2: // Highest earnings
-        trips.sort((a, b) => _parseEarnings(b.earnings).compareTo(_parseEarnings(a.earnings)));
+        trips.sort((a, b) =>
+            _parseEarnings(b.earnings).compareTo(_parseEarnings(a.earnings)));
         break;
       case 3: // Lowest earnings
-        trips.sort((a, b) => _parseEarnings(a.earnings).compareTo(_parseEarnings(b.earnings)));
+        trips.sort((a, b) =>
+            _parseEarnings(a.earnings).compareTo(_parseEarnings(b.earnings)));
         break;
       case 4: // By status (Active first, then Completed, then Cancelled)
         trips.sort((a, b) => a.status.index.compareTo(b.status.index));
@@ -73,7 +81,7 @@ class _TripsScreenState extends State<TripsScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -98,23 +106,28 @@ class _TripsScreenState extends State<TripsScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: TruxifyColors.primaryText,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _buildSortOption(context, 'Newest first', 0, tempSortIndex, (idx) {
+                  _buildSortOption(context, 'Newest first', 0, tempSortIndex,
+                      (idx) {
                     setBottomSheetState(() => tempSortIndex = idx);
                   }),
-                  _buildSortOption(context, 'Oldest first', 1, tempSortIndex, (idx) {
+                  _buildSortOption(context, 'Oldest first', 1, tempSortIndex,
+                      (idx) {
                     setBottomSheetState(() => tempSortIndex = idx);
                   }),
-                  _buildSortOption(context, 'Highest earnings', 2, tempSortIndex, (idx) {
+                  _buildSortOption(
+                      context, 'Highest earnings', 2, tempSortIndex, (idx) {
                     setBottomSheetState(() => tempSortIndex = idx);
                   }),
-                  _buildSortOption(context, 'Lowest earnings', 3, tempSortIndex, (idx) {
+                  _buildSortOption(context, 'Lowest earnings', 3, tempSortIndex,
+                      (idx) {
                     setBottomSheetState(() => tempSortIndex = idx);
                   }),
-                  _buildSortOption(context, 'By status', 4, tempSortIndex, (idx) {
+                  _buildSortOption(context, 'By status', 4, tempSortIndex,
+                      (idx) {
                     setBottomSheetState(() => tempSortIndex = idx);
                   }),
                   const SizedBox(height: 20),
@@ -138,7 +151,7 @@ class _TripsScreenState extends State<TripsScreen> {
                       child: Text(
                         'Apply',
                         style: GoogleFonts.dmSans(
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.surface,
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
                         ),
@@ -180,7 +193,11 @@ class _TripsScreenState extends State<TripsScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? TruxifyColors.accent : TruxifyColors.border,
+                  color: isSelected
+                      ? TruxifyColors.accent
+                      : (Theme.of(context).brightness == Brightness.dark
+                          ? TruxifyColors.darkBorder
+                          : TruxifyColors.border),
                   width: 2,
                 ),
               ),
@@ -202,7 +219,7 @@ class _TripsScreenState extends State<TripsScreen> {
               label,
               style: GoogleFonts.dmSans(
                 fontSize: 14,
-                color: TruxifyColors.primaryText,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -218,12 +235,12 @@ class _TripsScreenState extends State<TripsScreen> {
 
     return SafeArea(
       child: Scaffold(
-        backgroundColor: const Color(0xFFF7F3F3),
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: Column(
           children: [
             // Top Bar
             Container(
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -233,7 +250,7 @@ class _TripsScreenState extends State<TripsScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: TruxifyColors.primaryText,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   InkWell(
@@ -255,7 +272,7 @@ class _TripsScreenState extends State<TripsScreen> {
 
             // Summary Strip
             Container(
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Row(
                 children: [
@@ -275,7 +292,7 @@ class _TripsScreenState extends State<TripsScreen> {
                           'Total trips',
                           style: GoogleFonts.dmSans(
                             fontSize: 10,
-                            color: TruxifyColors.hintText,
+                            color: TruxifyColors.adaptiveSecondaryText(context),
                           ),
                         ),
                       ],
@@ -298,7 +315,7 @@ class _TripsScreenState extends State<TripsScreen> {
                           'Total earned',
                           style: GoogleFonts.dmSans(
                             fontSize: 10,
-                            color: TruxifyColors.hintText,
+                            color: TruxifyColors.adaptiveSecondaryText(context),
                           ),
                         ),
                       ],
@@ -321,7 +338,7 @@ class _TripsScreenState extends State<TripsScreen> {
                           'Completion',
                           style: GoogleFonts.dmSans(
                             fontSize: 10,
-                            color: TruxifyColors.hintText,
+                            color: TruxifyColors.adaptiveSecondaryText(context),
                           ),
                         ),
                       ],
@@ -335,10 +352,11 @@ class _TripsScreenState extends State<TripsScreen> {
             // Filter Chips
             Container(
               height: 52,
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 itemCount: _statusFilters.length,
                 itemBuilder: (context, index) {
                   final isSelected = index == _selectedChipIndex;
@@ -350,11 +368,14 @@ class _TripsScreenState extends State<TripsScreen> {
                     },
                     child: Container(
                       margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
                         color: isSelected ? TruxifyColors.accent : Colors.white,
                         border: Border.all(
-                          color: isSelected ? TruxifyColors.accent : TruxifyColors.border,
+                          color: isSelected
+                              ? TruxifyColors.accent
+                              : TruxifyColors.border,
                         ),
                         borderRadius: BorderRadius.circular(20),
                       ),
@@ -363,8 +384,12 @@ class _TripsScreenState extends State<TripsScreen> {
                           _statusFilters[index],
                           style: GoogleFonts.dmSans(
                             fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                            color: isSelected ? Colors.white : TruxifyColors.hintText,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? Colors.white
+                                : TruxifyColors.adaptiveSecondaryText(context),
                           ),
                         ),
                       ),
@@ -381,7 +406,7 @@ class _TripsScreenState extends State<TripsScreen> {
                       child: Text(
                         'No trips found',
                         style: GoogleFonts.dmSans(
-                          color: TruxifyColors.secondaryText,
+                          color: TruxifyColors.adaptiveSecondaryText(context),
                           fontSize: 14,
                         ),
                       ),
@@ -435,9 +460,13 @@ class _TripsScreenState extends State<TripsScreen> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: TruxifyColors.border),
+          border: Border.all(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? TruxifyColors.darkBorder
+                : TruxifyColors.border,
+          ),
           boxShadow: [
             BoxShadow(
               color: TruxifyColors.accent.withOpacity(0.06),
@@ -467,13 +496,16 @@ class _TripsScreenState extends State<TripsScreen> {
                         child: FutureBuilder<List<ll.LatLng?>>(
                           future: _resolveRoutePoints(trip.route),
                           builder: (context, snap) {
-                            if (snap.connectionState != ConnectionState.done || snap.data == null) {
+                            if (snap.connectionState != ConnectionState.done ||
+                                snap.data == null) {
                               return Container(
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF0E8E8),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Center(child: Icon(Icons.map_outlined, color: Colors.grey)),
+                                child: const Center(
+                                    child: Icon(Icons.map_outlined,
+                                        color: Colors.grey)),
                               );
                             }
 
@@ -481,7 +513,8 @@ class _TripsScreenState extends State<TripsScreen> {
                             final start = points.isNotEmpty ? points[0] : null;
                             final end = points.length > 1 ? points[1] : null;
 
-                            final center = (start ?? end) ?? ll.LatLng(22.9734, 78.6569);
+                            final center =
+                                (start ?? end) ?? ll.LatLng(22.9734, 78.6569);
                             final zoom = 6.0;
 
                             return ClipRRect(
@@ -496,7 +529,8 @@ class _TripsScreenState extends State<TripsScreen> {
                                 ),
                                 children: [
                                   TileLayer(
-                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    urlTemplate:
+                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                     userAgentPackageName: 'com.truxify.driver',
                                   ),
                                   if (start != null || end != null)
@@ -545,12 +579,13 @@ class _TripsScreenState extends State<TripsScreen> {
                               style: GoogleFonts.dmSans(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
-                                color: TruxifyColors.primaryText,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 3),
                             decoration: BoxDecoration(
                               color: statusBgColor,
                               borderRadius: BorderRadius.circular(20),
@@ -572,7 +607,7 @@ class _TripsScreenState extends State<TripsScreen> {
                         trip.date,
                         style: GoogleFonts.dmSans(
                           fontSize: 11,
-                          color: TruxifyColors.hintText,
+                          color: TruxifyColors.adaptiveSecondaryText(context),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -582,7 +617,8 @@ class _TripsScreenState extends State<TripsScreen> {
                               '—',
                               style: GoogleFonts.dmSans(
                                 fontSize: 10,
-                                color: TruxifyColors.hintText,
+                                color: TruxifyColors.adaptiveSecondaryText(
+                                    context),
                               ),
                             )
                           : SingleChildScrollView(
@@ -591,17 +627,26 @@ class _TripsScreenState extends State<TripsScreen> {
                                 children: trip.items.map((item) {
                                   return Container(
                                     margin: const EdgeInsets.only(right: 6),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFFDEAEA),
-                                      border: Border.all(color: TruxifyColors.border),
+                                      color: Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? TruxifyColors.darkAccentLight
+                                          : const Color(0xFFFDEAEA),
+                                      border: Border.all(
+                                          color: TruxifyColors.border),
                                       borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Text(
                                       item,
                                       style: GoogleFonts.dmSans(
                                         fontSize: 10,
-                                        color: TruxifyColors.accent,
+                                        color: Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? TruxifyColors.darkPrimaryText
+                                            : TruxifyColors.accent,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   );
@@ -617,7 +662,8 @@ class _TripsScreenState extends State<TripsScreen> {
                             trip.itemCount,
                             style: GoogleFonts.dmSans(
                               fontSize: 11,
-                              color: TruxifyColors.hintText,
+                              color:
+                                  TruxifyColors.adaptiveSecondaryText(context),
                             ),
                           ),
                           Text(
@@ -648,7 +694,10 @@ class _TripsScreenState extends State<TripsScreen> {
       final start = parts.isNotEmpty ? parts[0].trim() : '';
       final end = parts.length > 1 ? parts[1].trim() : '';
 
-      final results = await Future.wait([GeocodeService.resolvePlace(start), GeocodeService.resolvePlace(end)]);
+      final results = await Future.wait([
+        GeocodeService.resolvePlace(start),
+        GeocodeService.resolvePlace(end)
+      ]);
       return results;
     } catch (_) {
       return <ll.LatLng?>[null, null];
