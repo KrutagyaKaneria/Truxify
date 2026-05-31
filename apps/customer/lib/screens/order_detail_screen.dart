@@ -149,11 +149,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           PrimaryButton(
             label: 'Rebook This Route',
             onPressed: () {
+              final routeParts = widget.order.route.split(' → ');
+              final pickup = routeParts.length == 2 ? routeParts.first : widget.order.route;
+              final drop = routeParts.length == 2 ? routeParts.last : widget.order.route;
+
               TruxifyScope.of(context).openFindTrucks(
                 draft: RouteDraft(
-                  pickup: 'Surat, Gujarat',
-                  drop: 'Pune, Maharashtra',
-                  dateLabel: 'Tomorrow, 6:00 AM',
+                  pickup: pickup,
+                  drop: drop,
+                  dateLabel: widget.order.date,
                   goodsType: 'Textile',
                   weightTonnes: '3',
                   dimensions: '12 × 6 × 6',
