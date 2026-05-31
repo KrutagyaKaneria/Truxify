@@ -91,7 +91,7 @@ class MyDocumentsScreen extends StatelessWidget {
                               child: Text(
                                 doc['status'] as String,
                                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      color: doc['statusColor'],
+                                      color: doc['statusColor'] as Color,
                                       fontWeight: FontWeight.w600,
                                       fontSize: 10,
                                     ),
