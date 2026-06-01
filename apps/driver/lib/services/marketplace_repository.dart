@@ -31,16 +31,16 @@ class MarketplaceRepository {
   }
 
   Future<DriverBid> submitBid({
-    required String loadOfferId,
+    required String loadId,
     required String driverId,
     required num amount,
   }) async {
     final inserted = await _client
         .from('load_bids')
         .insert(<String, dynamic>{
-          'load_offer_id': loadOfferId,
+          'load_id': loadId,
           'driver_id': driverId,
-          'amount': amount,
+          'bid_amount': (amount * 100).round(),
         })
         .select()
         .single();

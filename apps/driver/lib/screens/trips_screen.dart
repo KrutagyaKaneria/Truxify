@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/app_routes.dart';
 import '../core/driver_session.dart';
 import '../core/supabase_config.dart';
@@ -26,6 +27,11 @@ class _TripsScreenState extends State<TripsScreen> {
   int _selectedSortIndex = 0; // 0: Newest, 1: Oldest, 2: Highest, 3: Lowest, 4: By status
   int _topTabIndex = 0; // 0: Trips, 1: Marketplace
 
+<<<<<<< HEAD
+=======
+  late final RealtimeChannel _bidChannel;
+  final List<String> _statusFilters = ['All', 'Active', 'Completed', 'Cancelled'];
+>>>>>>> 0e699d4 (fix(driver): align marketplace schema and realtime updates)
   final MarketplaceRepository _marketplaceRepository = MarketplaceRepository();
   late final TripService _tripService;
 
@@ -41,6 +47,20 @@ class _TripsScreenState extends State<TripsScreen> {
   List<LoadOffer> _enRouteLoads = const [];
   Map<String, DriverBid> _bidsByLoadId = const {};
 
+<<<<<<< HEAD
+=======
+  @override
+  void initState() {
+    super.initState();
+    if (SupabaseConfig.isConfigured) {
+      _refreshMarketplace();
+      _subscribeToRealtime();
+    } else {
+      _marketplaceError = 'Supabase is not configured. Pass --dart-define=SUPABASE_URL=... and --dart-define=SUPABASE_ANON_KEY=...';
+    }
+  }
+
+>>>>>>> 0e699d4 (fix(driver): align marketplace schema and realtime updates)
   Future<void> _refreshMarketplace({bool showSpinner = true}) async {
     if (!SupabaseConfig.isConfigured) {
       setState(() {
@@ -68,7 +88,7 @@ class _TripsScreenState extends State<TripsScreen> {
       final standardLoads = results[0] as List<LoadOffer>;
       final enRouteLoads = results[1] as List<LoadOffer>;
       final bids = results[2] as List<DriverBid>;
-      final bidsByLoad = <String, DriverBid>{for (final bid in bids) bid.loadOfferId: bid};
+      final bidsByLoad = <String, DriverBid>{for (final bid in bids) bid.loadId: bid};
 
       if (!mounted) return;
       setState(() {
@@ -86,6 +106,7 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+<<<<<<< HEAD
   final List<String> _statusFilters = [
     'All',
     'Active',
@@ -195,6 +216,24 @@ class _TripsScreenState extends State<TripsScreen> {
         tripItems: const [],
       );
     }).toList();
+=======
+  void _subscribeToRealtime() {
+    _bidChannel = Supabase.instance.client
+        .channel('driver-bids')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'load_bids',
+          callback: (_) => _refreshMarketplace(),
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    Supabase.instance.client.removeChannel(_bidChannel);
+    super.dispose();
+>>>>>>> 0e699d4 (fix(driver): align marketplace schema and realtime updates)
   }
 
   List<Trip> _getFilteredAndSortedTrips() {
@@ -494,13 +533,13 @@ class _TripsScreenState extends State<TripsScreen> {
                       }
                       try {
                         final bid = await _marketplaceRepository.submitBid(
-                          loadOfferId: loadId,
+                          loadId: loadId,
                           driverId: DriverSession.driverId,
                           amount: amount,
                         );
                         if (!context.mounted) return;
                         setState(() {
-                          _bidsByLoadId = <String, DriverBid>{..._bidsByLoadId, bid.loadOfferId: bid};
+                          _bidsByLoadId = <String, DriverBid>{..._bidsByLoadId, bid.loadId: bid};
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Bid submitted (Pending).')),
