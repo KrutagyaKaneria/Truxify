@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:freightfair/core/offline/gps/gps_delta_compressor.dart';
+import 'package:truxify/core/offline/gps/gps_delta_compressor.dart';
 
 void main() {
   group('GpsDeltaCompressor', () {

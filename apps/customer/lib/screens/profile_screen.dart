@@ -164,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
                 child: Text(
                   'Offline mode • Last updated ${_formatLastUpdated(_lastUpdatedLabel)}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: FreightFairColors.accentDark),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TruxifyColors.accentDark),
                 ),
               ),
             Transform.translate(

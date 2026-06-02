@@ -133,6 +133,7 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
             .toList();
       }
     });
+  }
 
   @override
   void didChangeDependencies() {

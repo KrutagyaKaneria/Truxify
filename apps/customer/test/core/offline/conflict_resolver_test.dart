@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:freightfair/core/offline/conflict/conflict_resolver.dart';
-import 'package:freightfair/core/offline/models/trip_event.dart';
+import 'package:truxify/core/offline/conflict/conflict_resolver.dart';
+import 'package:truxify/core/offline/models/trip_event.dart';
 
 void main() {
   group('ConflictResolver', () {
