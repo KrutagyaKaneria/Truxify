@@ -1,8 +1,10 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:truxify/widgets/menu_card.dart';
 import 'package:truxify/widgets/menu_item.dart';
 
 import '../controllers/app_controller.dart';
+import '../core/offline/cache/cache_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_route.dart';
 import 'about_screen.dart';
@@ -14,12 +16,61 @@ import 'my_documents_screen.dart';
 import 'payment_methods_screen.dart';
 import 'saved_addresses_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
   static const _profileName = 'Karthik Murugan';
   static const _companyName = 'Sri Murugan Textiles';
   static const _phoneNumber = '+91 98765 43210';
+
+  final CacheManager _cacheManager = CacheManager();
+  bool _isOffline = false;
+  String? _lastUpdatedLabel;
+  String _displayName = _profileName;
+  String _displayCompany = _companyName;
+  String _displayPhone = _phoneNumber;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final connectivity = await Connectivity().checkConnectivity();
+    final hasNetwork = connectivity != ConnectivityResult.none;
+    await _cacheManager.open();
+    await _cacheManager.cacheProfile({
+      'name': _profileName,
+      'company': _companyName,
+      'phone': _phoneNumber,
+    });
+
+    final cachedProfile = await _cacheManager.getProfile();
+    if (!mounted) return;
+
+    setState(() {
+      _isOffline = !hasNetwork;
+      _displayName = cachedProfile?['name']?.toString() ?? _profileName;
+      _displayCompany = cachedProfile?['company']?.toString() ?? _companyName;
+      _displayPhone = cachedProfile?['phone']?.toString() ?? _phoneNumber;
+      _lastUpdatedLabel = cachedProfile?['_cached_at']?.toString();
+    });
+  }
+
+  String _formatLastUpdated(String? updatedAt) {
+    if (updatedAt == null || updatedAt.isEmpty) return 'just now';
+    final lastUpdated = DateTime.tryParse(updatedAt);
+    if (lastUpdated == null) return 'just now';
+    final minutes = DateTime.now().difference(lastUpdated).inMinutes;
+    if (minutes < 1) return 'just now';
+    return minutes == 1 ? '1 min ago' : '$minutes mins ago';
+  }
 
   void _logout(BuildContext context) {
     Navigator.of(context).pushAndRemoveUntil(
@@ -68,7 +119,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        _profileName,
+                        _displayName,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w500,
@@ -76,7 +127,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _companyName,
+                        _displayCompany,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: Colors.white.withValues(alpha: 0.75),
                               fontSize: 13,
@@ -84,7 +135,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _phoneNumber,
+                        _displayPhone,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.white.withValues(alpha: 0.6),
                               fontSize: 12,
@@ -108,6 +159,14 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ],
             ),
+            if (_isOffline)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+                child: Text(
+                  'Offline mode • Last updated ${_formatLastUpdated(_lastUpdatedLabel)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TruxifyColors.accentDark),
+                ),
+              ),
             Transform.translate(
               offset: const Offset(0, -18),
               child: Padding(

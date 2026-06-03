@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/offline/cache/cache_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
@@ -11,6 +12,7 @@ class LanguageScreen extends StatefulWidget {
 }
 
 class _LanguageScreenState extends State<LanguageScreen> {
+  final CacheManager _cacheManager = CacheManager();
   int _selectedLanguageIndex = 0;
 
   final List<Map<String, String>> _languages = [
@@ -27,6 +29,24 @@ class _LanguageScreenState extends State<LanguageScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Language changed to $languageName')),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreLanguage();
+  }
+
+  Future<void> _restoreLanguage() async {
+    await _cacheManager.open();
+    final settings = await _cacheManager.getSettings();
+    final selectedCode = settings['language']?['code']?.toString();
+    if (selectedCode != null) {
+      final index = _languages.indexWhere((language) => language['code'] == selectedCode);
+      if (index >= 0 && mounted) {
+        setState(() => _selectedLanguageIndex = index);
+      }
+    }
   }
 
   @override
@@ -98,7 +118,15 @@ class _LanguageScreenState extends State<LanguageScreen> {
             const SizedBox(height: 32),
             PrimaryButton(
               label: 'Apply',
-              onPressed: () {
+              onPressed: () async {
+                await _cacheManager.open();
+                await _cacheManager.cacheSettings({
+                  'language': {
+                    'code': _languages[_selectedLanguageIndex]['code'],
+                    'name': _languages[_selectedLanguageIndex]['name']
+                  },
+                });
+                if (!mounted) return;
                 _showLanguageChangedSnackBar();
                 Navigator.of(context).pop();
               },
