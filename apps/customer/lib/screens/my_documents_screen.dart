@@ -14,7 +14,7 @@ class MyDocumentsScreen extends StatefulWidget {
 }
 
 class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
-  final CacheManager _cacheManager = CacheManager(); // Kept as requested
+  final CacheManager _cacheManager = CacheManager(); 
   final _supabase = Supabase.instance.client;
   
   bool _isOffline = false;
@@ -189,7 +189,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
                     final payload = {
                       'user_id': userId,
                       'doc_type': dbDocType,
-                      'status': 'verified',
+                      'status': 'pending',
                       'file_url': 'https://example.com/vault/${dbDocType}_${DateTime.now().millisecondsSinceEpoch}.pdf',
                       'blockchain_hash': '0x${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}...${userId.substring(0, 4)}',
                       'valid_until': DateTime.now().add(const Duration(days: 365)).toIso8601String(),
@@ -371,7 +371,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? TruxifyColors.accentLight
+                                  ? TruxifyColors.accentDark
                                   : Theme.of(context).colorScheme.surface,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(

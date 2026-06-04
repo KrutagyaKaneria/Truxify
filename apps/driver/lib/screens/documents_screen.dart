@@ -202,7 +202,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       'user_id': userId,
                       'doc_type': dbDocType,
                       'status':
-                          'verified', // In a real app this might be 'pending' initially
+                          'pending', // In a real app this might be 'pending' initially
                       'file_url':
                           'https://example.com/vault/${dbDocType}_${DateTime.now().millisecondsSinceEpoch}.pdf',
                       'blockchain_hash':
