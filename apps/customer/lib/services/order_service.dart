@@ -46,27 +46,30 @@ class OrderService {
   }
 
   Future<Map<String, dynamic>?> fetchOrderById(String orderDisplayId) async {
+    final userId = SupabaseService.requireUserId();
+
     final response = await _client
         .from('orders')
         .select()
         .eq('order_display_id', orderDisplayId)
+        .eq('customer_id', userId)
         .maybeSingle();
 
     return response;
   }
 
   Future<List<Map<String, dynamic>>> fetchOrders() async {
-  final userId = SupabaseService.requireUserId();
+    final userId = SupabaseService.requireUserId();
 
-  final response = await _client
-      .from('orders')
-      .select()
-      .eq('customer_id', userId)
-      .order('pickup_date', ascending: false);
+    final response = await _client
+        .from('orders')
+        .select()
+        .eq('customer_id', userId)
+        .order('pickup_date', ascending: false);
 
-  debugPrint('Orders response: $response');
+    debugPrint('Orders response: $response');
 
-  return List<Map<String, dynamic>>.from(response);
+    return List<Map<String, dynamic>>.from(response);
 }
 
   Future<List<Map<String, dynamic>>> fetchOrderTimeline(
@@ -82,31 +85,31 @@ class OrderService {
   }
 
   Future<List<Map<String, dynamic>>> fetchActiveOrders() async {
-  final userId = SupabaseService.requireUserId();
+    final userId = SupabaseService.requireUserId();
 
-  final response = await _client
-      .from('orders')
-      .select()
-      .eq('customer_id', userId)
-      .inFilter('status', ['pending', 'active', 'in_transit']);
+    final response = await _client
+        .from('orders')
+        .select()
+        .eq('customer_id', userId)
+        .inFilter('status', ['pending', 'active', 'in_transit']);
 
-  return List<Map<String, dynamic>>.from(response);
-}
+    return List<Map<String, dynamic>>.from(response);
+  }
 
   Future<List<Map<String, dynamic>>> fetchHistoryOrders() async {
-  final userId = SupabaseService.requireUserId();
+    final userId = SupabaseService.requireUserId();
 
-  final response = await _client
-      .from('orders')
-      .select()
-      .eq('customer_id', userId)
-      .inFilter('status', [
-        'completed',
-        'delivered',
-        'payment_released',
-        'cancelled',
-      ]);
+    final response = await _client
+        .from('orders')
+        .select()
+        .eq('customer_id', userId)
+        .inFilter('status', [
+          'completed',
+          'delivered',
+          'payment_released',
+          'cancelled',
+        ]);
 
-  return List<Map<String, dynamic>>.from(response);
-}
-}
+    return List<Map<String, dynamic>>.from(response);
+  }
+  }
