@@ -12,6 +12,31 @@ npm install
 npm run dev            # nodemon + node src/index.js
 ```
 
+## Local PostgreSQL/PostGIS
+
+Supabase remains the primary hosted PostgreSQL path, but contributors can run a
+local PostGIS database for offline relational database work:
+
+```bash
+docker compose up -d db
+```
+
+Default Docker Compose credentials:
+
+| Setting | Value |
+| ------- | ----- |
+| Host from containers | `db` |
+| Host from your machine | `localhost` |
+| Port | `5432` |
+| Database | `truxify` |
+| User | `postgres` |
+| Password | `postgrespassword` |
+
+Use `postgresql://postgres:postgrespassword@db:5432/truxify` when the backend
+runs inside Docker Compose. Use
+`postgresql://postgres:postgrespassword@localhost:5432/truxify` for host CLI
+tools. Data persists in the `postgres_data` Docker volume across restarts.
+
 ## Test
 
 Vitest + supertest. No live Supabase / Redis / MongoDB required — the test
