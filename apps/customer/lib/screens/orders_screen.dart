@@ -90,7 +90,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _loadOrders() async {
     final connectivity = await Connectivity().checkConnectivity();
-    final hasNetwork = connectivity != ConnectivityResult.none;
+    final hasNetwork = connectivity.isNotEmpty && !connectivity.contains(ConnectivityResult.none);
 
     if (!kIsWeb) {
       await _cacheManager.open();

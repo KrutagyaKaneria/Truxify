@@ -31,7 +31,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
 
   Future<void> _fetchDocuments() async {
     final connectivity = await Connectivity().checkConnectivity();
-    final hasNetwork = connectivity != ConnectivityResult.none;
+    final hasNetwork = connectivity.isNotEmpty && !connectivity.contains(ConnectivityResult.none);
     
     setState(() {
       _isOffline = !hasNetwork;
