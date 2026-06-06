@@ -46,6 +46,12 @@ begin
   return new;
 end;
 $$;
+create or replace function get_profile_id()
+returns uuid
+language sql stable security definer
+as $$
+  select id from profiles where firebase_uid = auth.uid()::text limit 1;
+$$;
 
 
 -- ############################################################################
@@ -698,122 +704,363 @@ alter table earnings_daily          enable row level security;
 -- 1. PROFILES
 create policy "Service role full access on profiles"
   on profiles for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users select own profile"
+  on profiles for select
+  to authenticated
+  using (firebase_uid = auth.uid()::text);
+
+create policy "Users insert own profile"
+  on profiles for insert
+  to authenticated
+  with check (firebase_uid = auth.uid()::text);
+
+create policy "Users update own profile"
+  on profiles for update
+  to authenticated
+  using (firebase_uid = auth.uid()::text)
+  with check (firebase_uid = auth.uid()::text);
+
 
 -- 2. DRIVER DETAILS
 create policy "Service role full access on driver_details"
   on driver_details for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own driver_details"
+  on driver_details for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 3. CUSTOMER STATS
 create policy "Service role full access on customer_stats"
   on customer_stats for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers access own stats"
+  on customer_stats for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 4. TRUCKS
 create policy "Service role full access on trucks"
   on trucks for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own trucks"
+  on trucks for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 5. TYRE DIAGNOSTICS
 create policy "Service role full access on tyre_diagnostics"
   on tyre_diagnostics for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own tyre diagnostics"
+  on tyre_diagnostics for select
+  to authenticated
+  using (
+    truck_id in (
+      select id from trucks where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 6. TRUCK MAINTENANCE TICKETS
 create policy "Service role full access on truck_maintenance_tickets"
   on truck_maintenance_tickets for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own maintenance tickets"
+  on truck_maintenance_tickets for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 7. SAVED ADDRESSES
 create policy "Service role full access on saved_addresses"
   on saved_addresses for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own saved addresses"
+  on saved_addresses for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 8. PAYMENT METHODS
 create policy "Service role full access on payment_methods"
   on payment_methods for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own payment methods"
+  on payment_methods for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 9. DOCUMENTS
 create policy "Service role full access on documents"
   on documents for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own documents"
+  on documents for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 10. ORDERS
 create policy "Service role full access on orders"
   on orders for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers access own orders"
+  on orders for all
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
+create policy "Drivers view assigned orders"
+  on orders for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 11. ORDER TIMELINE
 create policy "Service role full access on order_timeline"
   on order_timeline for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users view timeline for their orders"
+  on order_timeline for select
+  to authenticated
+  using (
+    order_display_id in (
+      select order_display_id from orders
+      where customer_id = get_profile_id()
+         or driver_id   = get_profile_id()
+    )
+  );
+
 
 -- 12. LOAD OFFERS
 create policy "Service role full access on load_offers"
   on load_offers for all
+  to service_role
   using (true) with check (true);
+
+create policy "Authenticated users view available load offers"
+  on load_offers for select
+  to authenticated
+  using (status = 'available' or customer_id = get_profile_id());
+
+create policy "Customers insert own load offers"
+  on load_offers for insert
+  to authenticated
+  with check (customer_id = get_profile_id());
+
+create policy "Customers update own load offers"
+  on load_offers for update
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
 
 -- 13. LOAD BIDS
 create policy "Service role full access on load_bids"
   on load_bids for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own bids"
+  on load_bids for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
+create policy "Customers view bids on own load offers"
+  on load_bids for select
+  to authenticated
+  using (
+    load_id in (
+      select id from load_offers where customer_id = get_profile_id()
+    )
+  );
+
 
 -- 14. TRIPS
 create policy "Service role full access on trips"
   on trips for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own trips"
+  on trips for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 15. TRIP ITEMS
 create policy "Service role full access on trip_items"
   on trip_items for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own trip items"
+  on trip_items for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 16. TRIP STOPS
 create policy "Service role full access on trip_stops"
   on trip_stops for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own trip stops"
+  on trip_stops for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 17. ROUTE MAP POINTS
 create policy "Service role full access on route_map_points"
   on route_map_points for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own route map points"
+  on route_map_points for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 18. RATINGS
 create policy "Service role full access on ratings"
   on ratings for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers manage own ratings"
+  on ratings for all
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
+create policy "Drivers view ratings about themselves"
+  on ratings for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 19. WALLET TRANSACTIONS
 create policy "Service role full access on wallet_transactions"
   on wallet_transactions for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own wallet transactions"
+  on wallet_transactions for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 20. DEMAND ROUTES
 create policy "Service role full access on demand_routes"
   on demand_routes for all
+  to service_role
   using (true) with check (true);
+
+create policy "Authenticated users view active demand routes"
+  on demand_routes for select
+  to authenticated
+  using (is_active = true);
 
 -- 21. NOTIFICATIONS
 create policy "Service role full access on notifications"
   on notifications for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own notifications"
+  on notifications for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
 
 -- 22. FAQS
 create policy "Service role full access on faqs"
   on faqs for all
+  to service_role
   using (true) with check (true);
+
+create policy "Anyone can view active FAQs"
+  on faqs for select
+  to anon, authenticated
+  using (is_active = true);
+
 
 -- 23. SUPPORT TICKETS
 create policy "Service role full access on support_tickets"
   on support_tickets for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own support tickets"
+  on support_tickets for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 24. EARNINGS DAILY
 create policy "Service role full access on earnings_daily"
   on earnings_daily for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own earnings daily"
+  on earnings_daily for select
+  to authenticated
+  using (driver_id = get_profile_id());
 
 
 
