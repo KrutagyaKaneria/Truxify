@@ -12,6 +12,7 @@ import { initWebSocketServer } from './sockets/tracker.js';
 // Load REST routes
 import orderRoutes from './routes/orderRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 
 // Configuration load from root folder is handled in db.js
 
@@ -92,6 +93,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/support', supportRoutes);
 
 // Root route
 app.get('/', (req, res) => {
