@@ -1,7 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../controllers/app_controller.dart';
 import '../core/offline/cache/cache_manager.dart';
@@ -36,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadLocation() async {
     final connectivity = await Connectivity().checkConnectivity();
-    final hasNetwork = connectivity != ConnectivityResult.none;
+    final hasNetwork = connectivity.isNotEmpty && !connectivity.contains(ConnectivityResult.none);
     await _cacheManager.open();
     await _cacheManager.cacheLastLocation(21.1702, 72.8311);
     final cachedLocation = await _cacheManager.getLastLocation();
