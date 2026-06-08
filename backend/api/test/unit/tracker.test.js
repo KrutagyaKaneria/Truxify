@@ -34,7 +34,7 @@ vi.mock('../../src/config/db.js', () => ({
   },
 }));
 
-const { handleLocationPing, handleTrackingMessage, handleSubscribe, __testing } = await import('../../src/sockets/tracker.js');
+const { closeWebSocketServer, handleLocationPing, handleTrackingMessage, handleSubscribe, __testing } = await import('../../src/sockets/tracker.js');
 
 describe('tracker WebSocket telemetry authorization', () => {
   beforeEach(() => {
@@ -170,6 +170,65 @@ describe('tracker WebSocket heartbeat messages', () => {
       },
     ]);
     expect(errorSpy).toHaveBeenCalledWith('WS Message parsing error:', expect.any(String));
+
+    errorSpy.mockRestore();
+  });
+});
+
+describe('tracker graceful shutdown', () => {
+  afterEach(async () => {
+    __testing.setShutdownState();
+    __testing.clearTelemetryWriteBuffer();
+    await closeWebSocketServer();
+  });
+
+  it('flushes telemetry without dropping buffered records when MongoDB is unavailable', async () => {
+    const telemetryInterval = setInterval(() => {}, 1000);
+    const heartbeatInterval = setInterval(() => {}, 1000);
+    const client = { close: vi.fn() };
+    const server = {
+      clients: new Set([client]),
+      close: vi.fn((callback) => callback()),
+    };
+    const clearSpy = vi.spyOn(global, 'clearInterval');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    __testing.setTelemetryWriteBuffer([{ driver_id: 'driver-1' }]);
+    __testing.setShutdownState({
+      telemetryInterval,
+      heartbeatInterval,
+      server,
+    });
+
+    await closeWebSocketServer();
+
+    expect(clearSpy).toHaveBeenCalledWith(telemetryInterval);
+    expect(clearSpy).toHaveBeenCalledWith(heartbeatInterval);
+    expect(client.close).toHaveBeenCalledWith(1001, 'Server shutting down');
+    expect(server.close).toHaveBeenCalled();
+    expect(__testing.getTelemetryWriteBuffer()).toHaveLength(1);
+    expect(__testing.getShutdownState()).toEqual({
+      isSchedulerActive: false,
+      hasTelemetryFlushInterval: false,
+      hasWebSocketServer: false,
+      hasWsHeartbeatInterval: false,
+    });
+
+    clearSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('is safe to call when no WebSocket server has been initialized', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await closeWebSocketServer();
+
+    expect(__testing.getShutdownState()).toEqual({
+      isSchedulerActive: false,
+      hasTelemetryFlushInterval: false,
+      hasWebSocketServer: false,
+      hasWsHeartbeatInterval: false,
+    });
 
     errorSpy.mockRestore();
   });

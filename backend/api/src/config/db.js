@@ -116,3 +116,34 @@ if (serviceAccountJson) {
 } else {
   console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT_JSON not found in .env. Firebase Auth verification disabled.');
 }
+
+export async function closeDbConnections() {
+  if (mongoClient) {
+    try {
+      await mongoClient.close();
+      mongoClient = null;
+      mongoDb = null;
+      console.log('[shutdown] MongoDB connection closed.');
+    } catch (err) {
+      console.error('[shutdown] MongoDB close error:', err.message);
+    }
+  }
+
+  if (redisClient) {
+    try {
+      if (redisClient.status !== 'end') {
+        await redisClient.quit();
+      }
+      console.log('[shutdown] Redis connection closed.');
+    } catch (err) {
+      console.error('[shutdown] Redis quit error:', err.message);
+      try {
+        redisClient.disconnect();
+      } catch (disconnectErr) {
+        console.error('[shutdown] Redis disconnect error:', disconnectErr.message);
+      }
+    } finally {
+      redisClient = null;
+    }
+  }
+}

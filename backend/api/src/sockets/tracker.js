@@ -10,12 +10,16 @@ const trackingSubscriptions = new Map();
 let telemetryWriteBuffer = [];
 const BUFFER_FLUSH_INTERVAL_MS = 20000; 
 let isSchedulerActive = false;
+let telemetryFlushInterval = null;
+let wsServer = null;
+let wsHeartbeatInterval = null;
 
 /**
  * Initialize WebSockets Server and bind event handlers
  */
 export function initWebSocketServer(server) {
   const wss = new WebSocketServer({ noServer: true });
+  wsServer = wss;
 
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -105,7 +109,7 @@ export function initWebSocketServer(server) {
     });
   });
 
-  const interval = setInterval(() => {
+  wsHeartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) {
         console.log('🔌 Terminating unresponsive WebSocket client.');
@@ -117,7 +121,10 @@ export function initWebSocketServer(server) {
   }, 30000);
 
   wss.on('close', () => {
-    clearInterval(interval);
+    if (wsHeartbeatInterval) {
+      clearInterval(wsHeartbeatInterval);
+      wsHeartbeatInterval = null;
+    }
   });
 
   if (!isSchedulerActive) {
@@ -320,9 +327,52 @@ async function flushTelemetryBuffer() {
 
 function initTelemetryScheduler() {
   isSchedulerActive = true;
-  setInterval(async () => {
+  telemetryFlushInterval = setInterval(async () => {
     await flushTelemetryBuffer();
   }, BUFFER_FLUSH_INTERVAL_MS);
+}
+
+export async function closeWebSocketServer() {
+  if (telemetryFlushInterval) {
+    clearInterval(telemetryFlushInterval);
+    telemetryFlushInterval = null;
+    isSchedulerActive = false;
+  }
+
+  if (wsHeartbeatInterval) {
+    clearInterval(wsHeartbeatInterval);
+    wsHeartbeatInterval = null;
+  }
+
+  try {
+    await flushTelemetryBuffer();
+  } catch (err) {
+    console.error('[shutdown] Failed to flush telemetry buffer:', err.message);
+  }
+
+  if (!wsServer) {
+    return;
+  }
+
+  const serverToClose = wsServer;
+  wsServer = null;
+
+  await new Promise((resolve) => {
+    serverToClose.clients?.forEach((client) => {
+      try {
+        client.close(1001, 'Server shutting down');
+      } catch (err) {
+        console.error('[shutdown] Failed to close WebSocket client:', err.message);
+      }
+    });
+
+    serverToClose.close((err) => {
+      if (err) {
+        console.error('[shutdown] WebSocket server close error:', err.message);
+      }
+      resolve();
+    });
+  });
 }
 
 export async function handleSubscribe(ws, data) {
@@ -417,7 +467,24 @@ export const __testing = {
   getTelemetryWriteBuffer() {
     return telemetryWriteBuffer;
   },
+  setTelemetryWriteBuffer(records) {
+    telemetryWriteBuffer = records;
+  },
   clearTelemetryWriteBuffer() {
     telemetryWriteBuffer = [];
+  },
+  getShutdownState() {
+    return {
+      isSchedulerActive,
+      hasTelemetryFlushInterval: Boolean(telemetryFlushInterval),
+      hasWebSocketServer: Boolean(wsServer),
+      hasWsHeartbeatInterval: Boolean(wsHeartbeatInterval),
+    };
+  },
+  setShutdownState({ telemetryInterval = null, heartbeatInterval = null, server = null } = {}) {
+    telemetryFlushInterval = telemetryInterval;
+    wsHeartbeatInterval = heartbeatInterval;
+    wsServer = server;
+    isSchedulerActive = Boolean(telemetryInterval);
   },
 };

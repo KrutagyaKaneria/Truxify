@@ -5,9 +5,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 
-// Pre-load DB config to execute client setups
-import './config/db.js';
-import { initWebSocketServer } from './sockets/tracker.js';
+import { closeDbConnections } from './config/db.js';
+import { closeWebSocketServer, initWebSocketServer } from './sockets/tracker.js';
 
 // Load REST routes
 import orderRoutes from './routes/orderRoutes.js';
@@ -149,11 +148,12 @@ async function shutdown(signal) {
     );
     console.log('[shutdown] HTTP server closed.');
 
-    // 2. Your WebSocket server likely exposes a .close() — call it here
-    // await closeWebSocketServer();
+    // 2. Flush buffered telemetry and close WebSocket resources
+    await closeWebSocketServer();
+    console.log('[shutdown] WebSocket resources closed.');
 
-    // 3. Close DB connections, flush queues, etc.
-    // await db.end();
+    // 3. Close database/cache connections
+    await closeDbConnections();
 
     console.log('[shutdown] Clean exit.');
     process.exit(0);
