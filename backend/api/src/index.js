@@ -39,6 +39,13 @@ app.use(cors({
     // Allow non-browser/same-origin requests with no Origin header
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // In development/testing, allow localhost or loopback origins
+    if (process.env.NODE_ENV !== 'production') {
+      const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      if (isLocalhost) return callback(null, true);
+    }
+
     return callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
