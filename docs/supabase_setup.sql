@@ -46,6 +46,12 @@ begin
   return new;
 end;
 $$;
+create or replace function get_profile_id()
+returns uuid
+language sql stable security definer
+as $$
+  select id from profiles where firebase_uid = (auth.jwt() ->> 'sub') limit 1;
+$$;
 
 
 -- ############################################################################
@@ -126,13 +132,6 @@ create table if not exists trucks (
   cargo_length_ft       numeric(6,2),
   cargo_width_ft        numeric(6,2),
   cargo_height_ft       numeric(6,2),
-  -- Live telemetry snapshots (latest values cached here; history in MongoDB)
-  fuel_level_pct        int,
-  engine_health_pct     int,
-  avg_tyre_pressure_psi int,
-  oil_quality_pct       int,
-  next_service_km       int,
-  tpms_connected        boolean not null default false,
   -- Compliance dates
   insurance_expiry      date,
   puc_expiry            date,
@@ -305,7 +304,12 @@ create table if not exists orders (
   eta                  text,
 
   created_at           timestamptz not null default now(),
-  updated_at           timestamptz not null default now()
+  updated_at           timestamptz not null default now(),
+
+  -- Delivery Verification
+  delivery_otp         text,                                    -- OTP for delivery verification
+  otp_verified         boolean not null default false,          -- Whether OTP has been verified
+  otp_generated_at     timestamptz                              -- When OTP was generated
 );
 
 create index if not exists idx_orders_customer     on orders (customer_id);
@@ -636,47 +640,16 @@ create index if not exists idx_support_tickets_status on support_tickets (status
 -- 24. EARNINGS DAILY SUMMARY  (pre-aggregated for the earnings chart)
 -- ────────────────────────────────────────────────────────────────────────────
 create table if not exists earnings_daily (
-  id          uuid primary key default gen_random_uuid(),
-  driver_id   uuid not null,                                  -- profiles.id
-  day_date    date not null,
-  amount      int not null default 0,                         -- paisa
-  trip_count  int not null default 0,
-  created_at  timestamptz not null default now()
+  id           uuid primary key default gen_random_uuid(),
+  driver_id    uuid not null references profiles(id) on delete cascade,
+  day_date     date not null,
+  amount       int not null default 0,                          -- paisa
+  trip_count   int not null default 0,
+  hours_driven numeric(4,2) not null default 0.00,
+  created_at   timestamptz not null default now()
 );
 
 create unique index if not exists idx_earnings_daily_driver_day on earnings_daily (driver_id, day_date);
-
-
--- ────────────────────────────────────────────────────────────────────────────
--- 25. MILESTONES  (gamification achievements for drivers)
--- ────────────────────────────────────────────────────────────────────────────
-create table if not exists milestones (
-  id          uuid primary key default gen_random_uuid(),
-  title       text not null,                                  -- '100 Trips'
-  subtitle    text not null,                                  -- 'Century club member'
-  icon_name   text,                                           -- Flutter icon reference
-  threshold   int not null,                                   -- numeric threshold value
-  metric      text not null
-              check (metric in ('trips','earnings','rating','completion_rate')),
-  is_active   boolean not null default true,
-  created_at  timestamptz not null default now()
-);
-
-
--- ────────────────────────────────────────────────────────────────────────────
--- 26. DRIVER MILESTONES  (which milestones a driver has achieved)
--- ────────────────────────────────────────────────────────────────────────────
-create table if not exists driver_milestones (
-  id            uuid primary key default gen_random_uuid(),
-  driver_id     uuid not null,                                -- profiles.id
-  milestone_id  uuid not null,                                -- milestones.id
-  achieved      boolean not null default false,
-  progress      numeric(5,2),                                 -- 0.00–100.00 (percentage)
-  achieved_at   timestamptz,
-  created_at    timestamptz not null default now()
-);
-
-create unique index if not exists idx_driver_milestones_unique on driver_milestones (driver_id, milestone_id);
 
 
 -- ############################################################################
@@ -707,8 +680,6 @@ alter table notifications           enable row level security;
 alter table faqs                    enable row level security;
 alter table support_tickets         enable row level security;
 alter table earnings_daily          enable row level security;
-alter table milestones              enable row level security;
-alter table driver_milestones       enable row level security;
 
 
 -- ############################################################################
@@ -731,132 +702,378 @@ alter table driver_milestones       enable row level security;
 -- 1. PROFILES
 create policy "Service role full access on profiles"
   on profiles for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users select own profile"
+  on profiles for select
+  to authenticated
+  using (firebase_uid = (auth.jwt() ->> 'sub'));
+
+create policy "Users insert own profile"
+  on profiles for insert
+  to authenticated
+  with check (firebase_uid = (auth.jwt() ->> 'sub'));
+
+create policy "Users update own profile"
+  on profiles for update
+  to authenticated
+  using (firebase_uid = (auth.jwt() ->> 'sub'))
+  with check (firebase_uid = (auth.jwt() ->> 'sub'));
+
 
 -- 2. DRIVER DETAILS
 create policy "Service role full access on driver_details"
   on driver_details for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own driver_details"
+  on driver_details for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 3. CUSTOMER STATS
 create policy "Service role full access on customer_stats"
   on customer_stats for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers access own stats"
+  on customer_stats for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 4. TRUCKS
 create policy "Service role full access on trucks"
   on trucks for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own trucks"
+  on trucks for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 5. TYRE DIAGNOSTICS
 create policy "Service role full access on tyre_diagnostics"
   on tyre_diagnostics for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own tyre diagnostics"
+  on tyre_diagnostics for select
+  to authenticated
+  using (
+    truck_id in (
+      select id from trucks where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 6. TRUCK MAINTENANCE TICKETS
 create policy "Service role full access on truck_maintenance_tickets"
   on truck_maintenance_tickets for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own maintenance tickets"
+  on truck_maintenance_tickets for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 7. SAVED ADDRESSES
 create policy "Service role full access on saved_addresses"
   on saved_addresses for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own saved addresses"
+  on saved_addresses for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 8. PAYMENT METHODS
 create policy "Service role full access on payment_methods"
   on payment_methods for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own payment methods"
+  on payment_methods for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 9. DOCUMENTS
 create policy "Service role full access on documents"
   on documents for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own documents"
+  on documents for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 10. ORDERS
 create policy "Service role full access on orders"
   on orders for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers access own orders"
+  on orders for all
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
+create policy "Drivers view assigned orders"
+  on orders for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 11. ORDER TIMELINE
 create policy "Service role full access on order_timeline"
   on order_timeline for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users view timeline for their orders"
+  on order_timeline for select
+  to authenticated
+  using (
+    order_display_id in (
+      select order_display_id from orders
+      where customer_id = get_profile_id()
+         or driver_id   = get_profile_id()
+    )
+  );
+
 
 -- 12. LOAD OFFERS
 create policy "Service role full access on load_offers"
   on load_offers for all
+  to service_role
   using (true) with check (true);
+
+create policy "Authenticated users view available load offers"
+  on load_offers for select
+  to authenticated
+  using (status = 'available' or customer_id = get_profile_id());
+
+create policy "Customers insert own load offers"
+  on load_offers for insert
+  to authenticated
+  with check (customer_id = get_profile_id());
+
+create policy "Customers update own load offers"
+  on load_offers for update
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
 
 -- 13. LOAD BIDS
 create policy "Service role full access on load_bids"
   on load_bids for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own bids"
+  on load_bids for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
+create policy "Customers view bids on own load offers"
+  on load_bids for select
+  to authenticated
+  using (
+    load_id in (
+      select id from load_offers where customer_id = get_profile_id()
+    )
+  );
+
 
 -- 14. TRIPS
 create policy "Service role full access on trips"
   on trips for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers access own trips"
+  on trips for all
+  to authenticated
+  using (driver_id = get_profile_id())
+  with check (driver_id = get_profile_id());
+
 
 -- 15. TRIP ITEMS
 create policy "Service role full access on trip_items"
   on trip_items for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own trip items"
+  on trip_items for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 16. TRIP STOPS
 create policy "Service role full access on trip_stops"
   on trip_stops for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own trip stops"
+  on trip_stops for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
+create policy "Drivers update own trip stops"
+  on trip_stops for update
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  )
+  with check (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 17. ROUTE MAP POINTS
 create policy "Service role full access on route_map_points"
   on route_map_points for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own route map points"
+  on route_map_points for select
+  to authenticated
+  using (
+    trip_display_id in (
+      select trip_display_id from trips where driver_id = get_profile_id()
+    )
+  );
+
 
 -- 18. RATINGS
 create policy "Service role full access on ratings"
   on ratings for all
+  to service_role
   using (true) with check (true);
+
+create policy "Customers manage own ratings"
+  on ratings for all
+  to authenticated
+  using (customer_id = get_profile_id())
+  with check (customer_id = get_profile_id());
+
+create policy "Drivers view ratings about themselves"
+  on ratings for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 19. WALLET TRANSACTIONS
 create policy "Service role full access on wallet_transactions"
   on wallet_transactions for all
+  to service_role
   using (true) with check (true);
+
+create policy "Drivers view own wallet transactions"
+  on wallet_transactions for select
+  to authenticated
+  using (driver_id = get_profile_id());
+
 
 -- 20. DEMAND ROUTES
 create policy "Service role full access on demand_routes"
   on demand_routes for all
+  to service_role
   using (true) with check (true);
+
+create policy "Authenticated users view active demand routes"
+  on demand_routes for select
+  to authenticated
+  using (is_active = true);
 
 -- 21. NOTIFICATIONS
 create policy "Service role full access on notifications"
   on notifications for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own notifications"
+  on notifications for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
 
 -- 22. FAQS
 create policy "Service role full access on faqs"
   on faqs for all
+  to service_role
   using (true) with check (true);
+
+create policy "Anyone can view active FAQs"
+  on faqs for select
+  to anon, authenticated
+  using (is_active = true);
+
 
 -- 23. SUPPORT TICKETS
 create policy "Service role full access on support_tickets"
   on support_tickets for all
+  to service_role
   using (true) with check (true);
+
+create policy "Users access own support tickets"
+  on support_tickets for all
+  to authenticated
+  using (user_id = get_profile_id())
+  with check (user_id = get_profile_id());
+
 
 -- 24. EARNINGS DAILY
 create policy "Service role full access on earnings_daily"
   on earnings_daily for all
+  to service_role
   using (true) with check (true);
 
--- 25. MILESTONES
-create policy "Service role full access on milestones"
-  on milestones for all
-  using (true) with check (true);
+create policy "Drivers view own earnings daily"
+  on earnings_daily for select
+  to authenticated
+  using (driver_id = get_profile_id());
 
--- 26. DRIVER MILESTONES
-create policy "Service role full access on driver_milestones"
-  on driver_milestones for all
-  using (true) with check (true);
 
 
 -- ############################################################################
@@ -1015,19 +1232,70 @@ begin
       v_confirmed, p_amount;
   end if;
 
-  -- Move funds from confirmed → pending
-  update driver_details
-    set wallet_confirmed = v_confirmed - p_amount,
-        wallet_pending   = v_pending   + p_amount,
-        updated_at       = now()
-    where user_id = p_driver_id;
 
-  -- Log the withdrawal transaction
-  insert into wallet_transactions
-    (driver_id, amount, txn_type, status, description)
-  values
-    (p_driver_id, p_amount, 'withdrawal', 'pending',
-     'Withdrawal to registered bank account');
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 27. COMPLETE TRIP RPC (SECURITY DEFINER)
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION complete_trip_tx(p_order_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_order RECORD;
+BEGIN
+  SELECT * INTO v_order FROM orders WHERE id = p_order_id;
+  
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Order not found';
+  END IF;
+  
+  IF v_order.driver_id IS NULL THEN
+    RAISE EXCEPTION 'No driver assigned to this order';
+  END IF;
+
+  UPDATE driver_details
+  SET 
+    total_trips = total_trips + 1,
+    wallet_confirmed = wallet_confirmed + v_order.total_amount,
+    wallet_total = wallet_total + v_order.total_amount,
+    updated_at = NOW()
+  WHERE user_id = v_order.driver_id;
+  
+  INSERT INTO wallet_transactions (
+    driver_id, order_display_id, amount, txn_type, status, description
+  ) VALUES (
+    v_order.driver_id,
+    v_order.order_display_id,
+    v_order.total_amount,
+    'credit',
+    'confirmed',
+    'Payout for Order ' || v_order.order_display_id
+  );
+  
+  INSERT INTO earnings_daily (driver_id, day_date, amount, trip_count)
+  VALUES (v_order.driver_id, CURRENT_DATE, v_order.total_amount, 1)
+  ON CONFLICT (driver_id, day_date)
+  DO UPDATE SET 
+    amount = earnings_daily.amount + EXCLUDED.amount,
+    trip_count = earnings_daily.trip_count + 1;
+END;
+$$;
+
+-- Move funds from confirmed → pending
+update driver_details
+  set wallet_confirmed = v_confirmed - p_amount,
+      wallet_pending   = v_pending   + p_amount,
+      updated_at       = now()
+  where user_id = p_driver_id;
+
+-- Log the withdrawal transaction
+insert into wallet_transactions
+  (driver_id, amount, txn_type, status, description)
+values
+  (p_driver_id, p_amount, 'withdrawal', 'pending',
+   'Withdrawal to registered bank account');
 end;
 $$;
 
@@ -1040,6 +1308,7 @@ create or replace function complete_trip_tx(
   p_trip_display_id text,
   p_driver_id       uuid,
   p_net_earnings    int,
+  p_hours_driven    numeric(4,2),
   p_end_time        text
 ) returns void
 language plpgsql
@@ -1069,11 +1338,61 @@ begin
      'Payout for Trip ' || p_trip_display_id);
 
   -- Step 4: Upsert daily earnings summary
-  insert into earnings_daily (driver_id, day_date, amount, trip_count)
-  values (p_driver_id, current_date, p_net_earnings, 1)
+  insert into earnings_daily (driver_id, day_date, amount, trip_count, hours_driven)
+  values (p_driver_id, current_date, p_net_earnings, 1, p_hours_driven)
   on conflict (driver_id, day_date)
   do update set
-    amount     = earnings_daily.amount + excluded.amount,
+    amount       = earnings_daily.amount + excluded.amount,
+    trip_count   = earnings_daily.trip_count + 1,
+    hours_driven = earnings_daily.hours_driven + excluded.hours_driven;
+end;
+$$;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- RPC 4: complete_trip_tx (overload) — Complete an order and release payment using order ID
+-- ────────────────────────────────────────────────────────────────────────────
+create or replace function complete_trip_tx(p_order_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_order record;
+begin
+  select * into v_order from orders where id = p_order_id;
+
+  if not found then
+    raise exception 'Order not found';
+  end if;
+
+  if v_order.driver_id is null then
+    raise exception 'No driver assigned to this order';
+  end if;
+
+  update driver_details
+  set
+    total_trips = total_trips + 1,
+    wallet_confirmed = wallet_confirmed + v_order.total_amount,
+    wallet_total = wallet_total + v_order.total_amount,
+    updated_at = now()
+  where user_id = v_order.driver_id;
+
+  insert into wallet_transactions (
+    driver_id, order_display_id, amount, txn_type, status, description
+  ) values (
+    v_order.driver_id,
+    v_order.order_display_id,
+    v_order.total_amount,
+    'credit',
+    'confirmed',
+    'Payout for Order ' || v_order.order_display_id
+  );
+
+  insert into earnings_daily (driver_id, day_date, amount, trip_count)
+  values (v_order.driver_id, current_date, v_order.total_amount, 1)
+  on conflict (driver_id, day_date)
+  do update set
+    amount = earnings_daily.amount + excluded.amount,
     trip_count = earnings_daily.trip_count + 1;
 end;
 $$;
@@ -1136,15 +1455,12 @@ on conflict (user_id) do nothing;
 
 -- Seed Truck
 insert into trucks (id, driver_id, name, number_plate, max_capacity_tons,
-  cargo_length_ft, cargo_width_ft, cargo_height_ft,
-  fuel_level_pct, engine_health_pct, avg_tyre_pressure_psi, oil_quality_pct,
-  next_service_km, tpms_connected, insurance_expiry, puc_expiry, permit_expiry)
+  cargo_length_ft, cargo_width_ft, cargo_height_ft, insurance_expiry, puc_expiry, permit_expiry)
 values
   ('c3333333-3333-3333-3333-333333333333',
    'b2222222-2222-2222-2222-222222222222',
    'Tata 407', 'GJ 05 AB 1234', 7.50,
    14.00, 6.00, 6.50,
-   78, 92, 35, 85, 12000, true,
    '2027-03-15', '2026-12-31', '2027-06-30')
 on conflict do nothing;
 
@@ -1252,47 +1568,6 @@ values
   ('Kolkata → Patna',   'Low',    600000,  'Low but consistent demand',    true)
 on conflict do nothing;
 
--- Seed Milestones
-insert into milestones (title, subtitle, icon_name, threshold, metric)
-values
-  ('First Delivery',  'Welcome to the road!',       'local_shipping', 1,    'trips'),
-  ('10 Trips',        'Getting warmed up',           'directions_car', 10,   'trips'),
-  ('50 Trips',        'Half-century champion',       'emoji_events',   50,   'trips'),
-  ('100 Trips',       'Century club member',         'military_tech',  100,  'trips'),
-  ('500 Trips',       'Road warrior',                'shield',         500,  'trips'),
-  ('₹1 Lakh Earned',  'First lakh milestone',        'currency_rupee', 10000000, 'earnings'),
-  ('₹5 Lakh Earned',  'Five lakh champion',          'diamond',        50000000, 'earnings'),
-  ('4.5★ Rating',     'Customer favourite',          'star',           450,  'rating'),
-  ('99% Completion',  'Reliability legend',          'verified',       9900, 'completion_rate')
-on conflict do nothing;
-
--- Seed Driver Milestones (progress for seed driver)
-insert into driver_milestones (driver_id, milestone_id, achieved, progress, achieved_at)
-select
-  'b2222222-2222-2222-2222-222222222222',
-  m.id,
-  case
-    when m.metric = 'trips' and m.threshold <= 148 then true
-    when m.metric = 'earnings' and m.threshold <= 52500000 then true
-    when m.metric = 'rating' and m.threshold <= 472 then true
-    when m.metric = 'completion_rate' and m.threshold <= 9650 then true
-    else false
-  end,
-  case
-    when m.metric = 'trips' then least(100.00, round((148.0 / m.threshold) * 100, 2))
-    when m.metric = 'earnings' then least(100.00, round((52500000.0 / m.threshold) * 100, 2))
-    when m.metric = 'rating' then least(100.00, round((472.0 / m.threshold) * 100, 2))
-    when m.metric = 'completion_rate' then least(100.00, round((9650.0 / m.threshold) * 100, 2))
-  end,
-  case
-    when m.metric = 'trips' and m.threshold <= 148 then now() - interval '30 days'
-    when m.metric = 'earnings' and m.threshold <= 52500000 then now() - interval '20 days'
-    when m.metric = 'rating' and m.threshold <= 472 then now() - interval '15 days'
-    when m.metric = 'completion_rate' and m.threshold <= 9650 then now() - interval '10 days'
-    else null
-  end
-from milestones m
-on conflict (driver_id, milestone_id) do nothing;
 
 -- Seed FAQs
 insert into faqs (app_type, question, answer, sort_order, is_active)
@@ -1335,15 +1610,15 @@ values
 on conflict do nothing;
 
 -- Seed Earnings Daily (last 7 days for the seed driver)
-insert into earnings_daily (driver_id, day_date, amount, trip_count)
+insert into earnings_daily (driver_id, day_date, amount, trip_count, hours_driven)
 values
-  ('b2222222-2222-2222-2222-222222222222', current_date - 6, 1850000, 2),
-  ('b2222222-2222-2222-2222-222222222222', current_date - 5, 0, 0),
-  ('b2222222-2222-2222-2222-222222222222', current_date - 4, 2400000, 3),
-  ('b2222222-2222-2222-2222-222222222222', current_date - 3, 1200000, 1),
-  ('b2222222-2222-2222-2222-222222222222', current_date - 2, 3100000, 3),
-  ('b2222222-2222-2222-2222-222222222222', current_date - 1, 1600000, 2),
-  ('b2222222-2222-2222-2222-222222222222', current_date,     900000, 1)
+  ('b2222222-2222-2222-2222-222222222222', current_date - 6, 1850000, 2, 5.20),
+  ('b2222222-2222-2222-2222-222222222222', current_date - 5, 0, 0, 0.00),
+  ('b2222222-2222-2222-2222-222222222222', current_date - 4, 2400000, 3, 8.50),
+  ('b2222222-2222-2222-2222-222222222222', current_date - 3, 1200000, 1, 3.50),
+  ('b2222222-2222-2222-2222-222222222222', current_date - 2, 3100000, 3, 9.00),
+  ('b2222222-2222-2222-2222-222222222222', current_date - 1, 1600000, 2, 4.80),
+  ('b2222222-2222-2222-2222-222222222222', current_date,     900000, 1, 2.50)
 on conflict (driver_id, day_date) do nothing;
 
 -- Seed Wallet Transactions (recent history)
@@ -1361,11 +1636,11 @@ on conflict do nothing;
 -- ✅ SETUP COMPLETE
 -- ============================================================================
 -- Your Supabase database now has:
---   • 26 tables with indexes
+--   • 24 tables with indexes
 --   • Row Level Security enabled + permissive policies
 --   • Auto-updating `updated_at` triggers
 --   • 4 RPC functions: accept_bid_tx, withdraw_funds_tx, complete_trip_tx, submit_rating_tx
---   • Seed data: 1 customer, 1 driver, 1 truck, 1 order, FAQs, milestones, etc.
+--   • Seed data: 1 customer, 1 driver, 1 truck, 1 order, FAQs, etc.
 --
 -- NEXT STEPS:
 --   1. Copy your Supabase URL + anon key into .env

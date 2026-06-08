@@ -3,29 +3,59 @@ import cors from 'cors';
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
 
-// Pre-load DB config to execute client setups
-import './config/db.js';
-import { initWebSocketServer } from './sockets/tracker.js';
+import { closeDbConnections } from './config/db.js';
+import { closeWebSocketServer, initWebSocketServer } from './sockets/tracker.js';
 
 // Load REST routes
 import orderRoutes from './routes/orderRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 
 // Configuration load from root folder is handled in db.js
 
 
 const app = express();
 const server = http.createServer(app);
+app.set('trust proxy', 1); // ← add this
 
 // Enable CORS for frontend clients (Flutter Web, mobile, etc.)
+const corsOrigins = process.env.NODE_ENV === 'production'
+  ? (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
+  : '*';
+
 app.use(cors({
-  origin: '*', // Allow all origins for development; tighten in production
+  origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role', 'x-user-name']
 }));
 
 app.use(express.json());
+
+// ============================================================================
+// RATE LIMITING
+// ============================================================================
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.originalUrl === '/api/health',
+  message: { error: 'Too many requests, please try again later.' }
+});
+
+const healthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Health check rate limit exceeded.' }
+});
+
+app.use('/api/', limiter);
+app.use('/api/health', healthLimiter);
+
+
 
 // ============================================================================
 // REQUEST LOGGER
@@ -62,6 +92,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/support', supportRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -119,11 +150,12 @@ async function shutdown(signal) {
     );
     console.log('[shutdown] HTTP server closed.');
 
-    // 2. Your WebSocket server likely exposes a .close() — call it here
-    // await closeWebSocketServer();
+    // 2. Flush buffered telemetry and close WebSocket resources
+    await closeWebSocketServer();
+    console.log('[shutdown] WebSocket resources closed.');
 
-    // 3. Close DB connections, flush queues, etc.
-    // await db.end();
+    // 3. Close database/cache connections
+    await closeDbConnections();
 
     console.log('[shutdown] Clean exit.');
     process.exit(0);

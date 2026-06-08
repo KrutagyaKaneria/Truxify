@@ -1,0 +1,13 @@
+{
+  "name": "truxify-blockchain",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^4.0.13",
+    "ethers": "^6.15.0",
+    "hardhat": "^3.8.0"
+  }
+}

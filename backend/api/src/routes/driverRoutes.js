@@ -1,6 +1,8 @@
 import express from 'express';
 import { supabase } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import { driverOnlineSchema } from '../validation/requestSchemas.js';
 
 const router = express.Router();
 
@@ -47,7 +49,7 @@ router.get('/stats', authenticate, requireRole(['driver']), async (req, res) => 
 // ============================================================================
 // 2. TOGGLE ONLINE / OFFLINE STATUS (DRIVER)
 // ============================================================================
-router.put('/online', authenticate, requireRole(['driver']), async (req, res) => {
+router.put('/online', authenticate, requireRole(['driver']), validateBody(driverOnlineSchema), async (req, res) => {
   const { is_online } = req.body;
 
   if (typeof is_online !== 'boolean') {
@@ -81,20 +83,57 @@ router.put('/online', authenticate, requireRole(['driver']), async (req, res) =>
 // ============================================================================
 router.get('/wallet/history', authenticate, requireRole(['driver']), async (req, res) => {
   try {
-    const { data: transactions, error } = await supabase
-      .from('wallet_transactions')
-      .select('*')
-      .eq('driver_id', req.user.id)
-      .order('created_at', { ascending: false });
+    const page = parseInt(req.query.page || '1', 10);
+    const limit = parseInt(req.query.limit || '20', 10);
 
-    if (error) {
-      return res.status(500).json({ error: 'Failed to fetch transaction history.', details: error.message });
+    // Validation
+    if (isNaN(page) || page < 1) {
+      return res.status(400).json({
+        error: 'page must be greater than or equal to 1'
+      });
     }
 
-    res.json(transactions || []);
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      return res.status(400).json({
+        error: 'limit must be between 1 and 100'
+      });
+    }
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const {
+      data: transactions,
+      error,
+      count
+    } = await supabase
+      .from('wallet_transactions')
+      .select('*', { count: 'exact' })
+      .eq('driver_id', req.user.id)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      return res.status(500).json({
+        error: 'Failed to fetch transaction history.',
+        details: error.message
+      });
+    }
+
+    res.json({
+      page,
+      limit,
+      total: count || 0,
+      totalPages: Math.ceil((count || 0) / limit),
+      transactions: transactions || []
+    });
 
   } catch (err) {
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Wallet history fetch error:', err);
+
+    res.status(500).json({
+      error: 'Internal Server Error'
+    });
   }
 });
 
@@ -102,7 +141,14 @@ router.get('/wallet/history', authenticate, requireRole(['driver']), async (req,
 // 4. FETCH Aggregated daily/weekly earnings summaries for chart (DRIVER)
 // ============================================================================
 router.get('/earnings/summary', authenticate, requireRole(['driver']), async (req, res) => {
-  const limitDays = parseInt(req.query.days || '30', 10);
+  const daysParam = req.query.days ?? '30';
+  const limitDays = typeof daysParam === 'string' ? Number(daysParam) : NaN;
+
+  if (!Number.isInteger(limitDays) || limitDays < 1 || limitDays > 365) {
+    return res.status(400).json({
+      error: 'days must be an integer between 1 and 365'
+    });
+  }
 
   try {
     const cutoff = new Date();

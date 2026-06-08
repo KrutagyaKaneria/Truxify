@@ -32,7 +32,9 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   Future<void> _verifyOtp() async {
-    final code = _controllers.map((controller) => controller.text).join();
+    final code = _controllers
+      .map((c) => c.text.replaceAll('\u200B', ''))
+      .join();
     if (code != '1234') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter mock OTP 1234 to continue')),
