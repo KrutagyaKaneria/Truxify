@@ -13,7 +13,7 @@ class DocumentsScreen extends StatefulWidget {
 }
 
 class _DocumentsScreenState extends State<DocumentsScreen> {
-  final _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase => Supabase.instance.client;
   List<Map<String, dynamic>> _documents = [];
   bool _isLoading = true;
   String? _error;

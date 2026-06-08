@@ -6,13 +6,13 @@ import dotenv from 'dotenv';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 
-// Pre-load DB config to execute client setups
-import './config/db.js';
-import { initWebSocketServer } from './sockets/tracker.js';
+import { closeDbConnections } from './config/db.js';
+import { closeWebSocketServer, initWebSocketServer } from './sockets/tracker.js';
 
 // Load REST routes
 import orderRoutes from './routes/orderRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 
 // Configuration load from root folder is handled in db.js
 
@@ -66,9 +66,34 @@ app.use(helmet({
 const corsOrigins = process.env.NODE_ENV === 'production'
   ? (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
   : '*';
+// Enable CORS only for explicitly allowed frontend origins
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter((origin) => {
+    if (!origin) return false;
+    try {
+      const parsed = new URL(origin);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  });
 
 app.use(cors({
-  origin: corsOrigins,
+  origin: (origin, callback) => {
+    // Allow non-browser/same-origin requests with no Origin header
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // In development/testing, allow localhost or loopback origins
+    if (process.env.NODE_ENV !== 'production') {
+      const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      if (isLocalhost) return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-role', 'x-user-name']
 }));
@@ -134,6 +159,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/support', supportRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -192,11 +218,12 @@ async function shutdown(signal) {
     );
     console.log('[shutdown] HTTP server closed.');
 
-    // 2. Your WebSocket server likely exposes a .close() — call it here
-    // await closeWebSocketServer();
+    // 2. Flush buffered telemetry and close WebSocket resources
+    await closeWebSocketServer();
+    console.log('[shutdown] WebSocket resources closed.');
 
-    // 3. Close DB connections, flush queues, etc.
-    // await db.end();
+    // 3. Close database/cache connections
+    await closeDbConnections();
 
     console.log('[shutdown] Clean exit.');
     process.exit(0);

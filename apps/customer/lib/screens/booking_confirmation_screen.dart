@@ -31,10 +31,6 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen>
   late final AnimationController _controller;
   late final OrderService _orderService;
 
-  String _generateOrderId() {
-    return '#ORD${DateTime.now().millisecondsSinceEpoch}';
-  }
-
   @override
   void initState() {
     super.initState();
@@ -51,11 +47,8 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen>
   }
 
   Future<void> _pay() async {
-    final orderId = _generateOrderId();
-
     try {
-      await _orderService.createOrder(
-        orderDisplayId: orderId,
+      final orderId = await _orderService.createOrder(
         pickupAddress: widget.draft.pickup,
         dropAddress: widget.draft.drop,
         pickupLat: widget.draft.pickupLat ?? _pickupLat,
@@ -65,9 +58,7 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen>
         pickupTime: widget.draft.dateLabel,
         goodsType: widget.draft.goodsType,
         weightTonnes: double.tryParse(widget.draft.weightTonnes) ?? 0,
-        truckId: mockDefaultTruckNumber,
-        driverId: widget.truck.driver,
-        totalAmount: 7000,
+        upiId: _upiController.text.trim(),
       );
 
       _createdOrderId = orderId;

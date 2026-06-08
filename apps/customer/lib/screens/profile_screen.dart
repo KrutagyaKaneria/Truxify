@@ -43,7 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfile() async {
     final connectivity = await Connectivity().checkConnectivity();
-    final hasNetwork = connectivity != ConnectivityResult.none;
+    final hasNetwork = connectivity.isNotEmpty && !connectivity.contains(ConnectivityResult.none);
     await _cacheManager.open();
     await _cacheManager.cacheProfile({
       'name': _profileName,
