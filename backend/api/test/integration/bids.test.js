@@ -57,6 +57,16 @@ describe('Bid Routes', () => {
     m.store.load_offers.push({
       id: 'load-1',
       status: 'available',
+      customer_id: 'customer-1',
+    });
+
+    m.store.driver_details.push({
+      user_id: 'driver-1',
+      truck_id: 'truck-1',
+    });
+
+    m.store.trucks.push({
+      id: 'truck-1',
     });
 
     const app = buildApp();
@@ -74,6 +84,73 @@ describe('Bid Routes', () => {
 
     expect(insert).toBeTruthy();
     expect(insert.payload.bid_amount).toBe(50000);
+  });
+
+  it('POST /:id/bids blocks drivers from bidding on their own load offer', async () => {
+    m.store.load_offers.push({
+      id: 'load-1',
+      status: 'available',
+      customer_id: 'driver-1',
+    });
+
+    const app = buildApp();
+
+    const res = await request(app)
+      .post('/api/orders/load-1/bids')
+      .set(DRIVER)
+      .send({ bid_amount: 50000 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('You cannot bid on your own load offer');
+    expect(m.calls.some(c => c.table === 'load_bids' && c.mode === 'insert')).toBe(false);
+  });
+
+  it('POST /:id/bids blocks drivers without an assigned truck', async () => {
+    m.store.load_offers.push({
+      id: 'load-1',
+      status: 'available',
+      customer_id: 'customer-1',
+    });
+
+    m.store.driver_details.push({
+      user_id: 'driver-1',
+      truck_id: null,
+    });
+
+    const app = buildApp();
+
+    const res = await request(app)
+      .post('/api/orders/load-1/bids')
+      .set(DRIVER)
+      .send({ bid_amount: 50000 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('You must assign a valid truck to your profile before bidding on loads');
+    expect(m.calls.some(c => c.table === 'load_bids' && c.mode === 'insert')).toBe(false);
+  });
+
+  it('POST /:id/bids blocks orphaned truck assignments', async () => {
+    m.store.load_offers.push({
+      id: 'load-1',
+      status: 'available',
+      customer_id: 'customer-1',
+    });
+
+    m.store.driver_details.push({
+      user_id: 'driver-1',
+      truck_id: 'missing-truck',
+    });
+
+    const app = buildApp();
+
+    const res = await request(app)
+      .post('/api/orders/load-1/bids')
+      .set(DRIVER)
+      .send({ bid_amount: 50000 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Assigned truck record could not be found');
+    expect(m.calls.some(c => c.table === 'load_bids' && c.mode === 'insert')).toBe(false);
   });
 
   it('POST /:id/bids returns 410 when load unavailable', async () => {

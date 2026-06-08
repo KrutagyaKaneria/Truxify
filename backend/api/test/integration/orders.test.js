@@ -304,6 +304,8 @@ describe('POST /api/orders/:id/bids — duplicate bid prevention', () => {
   beforeEach(() => {
     m.store.load_offers = [];
     m.store.load_bids = [];
+    m.store.driver_details = [];
+    m.store.trucks = [];
     m.calls.length = 0;
   });
 
@@ -312,6 +314,14 @@ describe('POST /api/orders/:id/bids — duplicate bid prevention', () => {
     m.store.load_offers.push({
       id: 'load-duplicate',
       status: 'available',
+      customer_id: 'customer-1',
+    });
+    m.store.driver_details.push({
+      user_id: DRIVER_HEADERS['x-user-id'],
+      truck_id: 'truck-1',
+    });
+    m.store.trucks.push({
+      id: 'truck-1',
     });
     m.store.load_bids.push({
       id: 'existing-bid',

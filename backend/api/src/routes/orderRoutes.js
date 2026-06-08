@@ -261,7 +261,7 @@ router.post('/:id/bids', authenticate, requireRole(['driver']), async (req, res)
     // Check if the load exists and is still available
     const { data: offer, error: offerErr } = await supabase
       .from('load_offers')
-      .select('id, status')
+      .select('id, status, customer_id')
       .eq('id', loadOfferId)
       .maybeSingle();
 
@@ -271,6 +271,48 @@ router.post('/:id/bids', authenticate, requireRole(['driver']), async (req, res)
 
     if (offer.status !== 'available') {
       return res.status(410).json({ error: 'Load is no longer available for bidding.' });
+    }
+
+    if (offer.customer_id === req.user.id) {
+      return res.status(403).json({ error: 'You cannot bid on your own load offer' });
+    }
+
+    const { data: driverDetails, error: driverDetailsErr } = await supabase
+      .from('driver_details')
+      .select('truck_id')
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+
+    if (driverDetailsErr) {
+      return res.status(500).json({
+        error: 'Failed to verify driver profile.',
+        details: driverDetailsErr.message
+      });
+    }
+
+    if (!driverDetails?.truck_id) {
+      return res.status(400).json({
+        error: 'You must assign a valid truck to your profile before bidding on loads'
+      });
+    }
+
+    const { data: truck, error: truckErr } = await supabase
+      .from('trucks')
+      .select('id')
+      .eq('id', driverDetails.truck_id)
+      .maybeSingle();
+
+    if (truckErr) {
+      return res.status(500).json({
+        error: 'Failed to verify assigned truck.',
+        details: truckErr.message
+      });
+    }
+
+    if (!truck) {
+      return res.status(400).json({
+        error: 'Assigned truck record could not be found'
+      });
     }
 
     const { data: existingBid, error: existingBidErr } = await supabase
