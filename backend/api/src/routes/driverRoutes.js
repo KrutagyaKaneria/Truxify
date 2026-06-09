@@ -152,7 +152,7 @@ router.get('/earnings/summary', authenticate, requireRole(['driver']), async (re
 
   try {
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - limitDays);
+    cutoff.setDate(cutoff.getDate() - (limitDays - 1));
 
     const { data: summary, error } = await supabase
       .from('earnings_daily')
