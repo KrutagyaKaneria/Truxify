@@ -789,6 +789,11 @@ class _ThemeModeTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = TruxifyScope.of(context);
     final currentTheme = controller.themeMode;
+    final selectedTheme = currentTheme == ThemeMode.system
+        ? (Theme.of(context).brightness == Brightness.dark
+            ? ThemeMode.dark
+            : ThemeMode.light)
+        : currentTheme;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -813,10 +818,6 @@ class _ThemeModeTile extends StatelessWidget {
             ),
             segments: const [
               ButtonSegment<ThemeMode>(
-                value: ThemeMode.system,
-                label: Text('System'),
-              ),
-              ButtonSegment<ThemeMode>(
                 value: ThemeMode.light,
                 label: Text('Light'),
               ),
@@ -825,7 +826,7 @@ class _ThemeModeTile extends StatelessWidget {
                 label: Text('Dark'),
               ),
             ],
-            selected: {currentTheme},
+            selected: {selectedTheme},
             onSelectionChanged: (selection) {
               controller.setThemeMode(selection.first);
             },
