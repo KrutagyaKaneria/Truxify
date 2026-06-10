@@ -317,6 +317,67 @@ describe('POST /api/orders — server-side pricing contract', () => {
     expect(res.body.message).toMatch(/Milestone updated successfully/i);
   });
 
+  it('En Route to Pickup milestone does not set status to picked_up', async () => {
+    m.store.orders = [{
+      id: 'order-1',
+      driver_id: 'driver-123',
+      order_display_id: 'ORD001',
+      status: 'truck_assigned'
+    }];
+
+    m.store.order_timeline = [{
+      order_display_id: 'ORD001',
+      milestone: 'En Route to Pickup',
+      completed: false
+    }];
+
+    const app = buildApp();
+
+    const res = await request(app)
+      .put('/api/orders/order-1/milestones')
+      .set({
+        'x-user-id': 'driver-123',
+        'x-user-role': 'driver'
+      })
+      .send({
+        milestone: 'En Route to Pickup'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('truck_assigned');
+    expect(res.body.status).not.toBe('picked_up');
+  });
+
+  it('Goods Loaded milestone sets status to picked_up', async () => {
+    m.store.orders = [{
+      id: 'order-1',
+      driver_id: 'driver-123',
+      order_display_id: 'ORD001',
+      status: 'truck_assigned'
+    }];
+
+    m.store.order_timeline = [{
+      order_display_id: 'ORD001',
+      milestone: 'Goods Loaded',
+      completed: false
+    }];
+
+    const app = buildApp();
+
+    const res = await request(app)
+      .put('/api/orders/order-1/milestones')
+      .set({
+        'x-user-id': 'driver-123',
+        'x-user-role': 'driver'
+      })
+      .send({
+        milestone: 'Goods Loaded'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('picked_up');
+  });
+
   it('returns 403 when driver is not assigned to order', async () => {
     m.store.orders = [{
       id: 'order-1',

@@ -477,8 +477,11 @@ router.put('/:id/milestones', authenticate, requireRole(['driver']), async (req,
   const { milestone } = req.body;
 
   const milestoneMap = {
-    'Truck Assigned': 'truck_assigned', 'En Route to Pickup': 'picked_up',
-    'Goods Loaded': 'picked_up', 'In Transit': 'in_transit', 'Arriving': 'arriving',
+    'Truck Assigned': 'truck_assigned',
+    'En Route to Pickup': 'truck_assigned',
+    'Goods Loaded': 'picked_up',
+    'In Transit': 'in_transit',
+    'Arriving': 'arriving',
   };
 
   if (milestone === 'Delivered') return res.status(400).json({ error: 'Cannot set Delivered milestone directly. Use /verify-delivery endpoint to confirm delivery.' });
