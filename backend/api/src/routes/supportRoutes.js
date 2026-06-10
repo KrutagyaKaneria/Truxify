@@ -212,6 +212,10 @@ router.patch('/tickets/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access Denied: You do not own this ticket.' });
     }
 
+    if (ticket.status === 'closed') {
+      return res.status(400).json({ error: 'Cannot update a closed ticket.' });
+    }
+
     const VALID_STATUSES = ['open', 'in_progress', 'resolved', 'closed'];
     const CATEGORY_MAP = {
       billing: 'payment', booking: 'order', payment: 'payment',
@@ -245,8 +249,10 @@ router.patch('/tickets/:id', authenticate, async (req, res) => {
           error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
         });
       }
-      if (ticket.status === 'closed') {
-        return res.status(400).json({ error: 'Cannot update a closed ticket.' });
+      if (req.user.role !== 'admin' && normalizedStatus !== ticket.status && normalizedStatus !== 'closed') {
+        return res.status(403).json({
+          error: 'Access Denied: Only admins can change tickets to this status.',
+        });
       }
       updates.status = normalizedStatus;
     }
