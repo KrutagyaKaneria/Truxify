@@ -47,6 +47,11 @@ vi.mock('../../src/services/reputation.js', () => ({
   awardReputationPoints: awardReputationPointsMock,
 }));
 
+const predictDemandMock = vi.fn();
+vi.mock('../../src/services/ml.js', () => ({
+  predictDemand: predictDemandMock,
+}));
+
 const { default: orderRouter } = await import('../../src/routes/orderRoutes.js');
 const { computeOrderPricing } = await import('../../src/lib/pricing.js');
 import express from 'express';
@@ -1375,5 +1380,86 @@ describe('POST /api/orders/:id/ratings — delivered order reputation flow', () 
     await new Promise(r => setTimeout(r, 0));
     // Rating saved off-chain; blockchain skipped gracefully.
     expect(awardReputationPointsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/orders/predict-demand — ML demand prediction', () => {
+  beforeEach(() => {
+    predictDemandMock.mockReset();
+  });
+
+  it('happy path: 200, returns prediction from ML engine', async () => {
+    predictDemandMock.mockResolvedValueOnce({
+      predicted_demand: 42.5,
+      model_version: '1.0.0',
+      feature_names: ['hour', 'day_of_week', 'is_weekend', 'temperature', 'precipitation', 'historical_volume', 'nearby_drivers'],
+    });
+
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/predict-demand')
+      .set(CUSTOMER_HEADERS)
+      .send({
+        hour: 14.5,
+        day_of_week: 3,
+        temperature: 25,
+        precipitation: 0,
+        historical_volume: 50,
+        nearby_drivers: 15,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      predicted_demand: 42.5,
+      model_version: '1.0.0',
+      feature_names: ['hour', 'day_of_week', 'is_weekend', 'temperature', 'precipitation', 'historical_volume', 'nearby_drivers'],
+    });
+    expect(predictDemandMock).toHaveBeenCalledWith({
+      hour: 14.5,
+      day_of_week: 3,
+      temperature: 25,
+      precipitation: 0,
+      historical_volume: 50,
+      nearby_drivers: 15,
+    });
+  });
+
+  it('returns 400 for validation failure (invalid inputs)', async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/predict-demand')
+      .set(CUSTOMER_HEADERS)
+      .send({
+        hour: 25, // invalid hour (must be 0-23)
+        day_of_week: 3,
+        temperature: 25,
+        precipitation: 0,
+        historical_volume: 50,
+        nearby_drivers: 15,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Validation failed');
+  });
+
+  it('returns 502 Bad Gateway when ML engine throws an error', async () => {
+    predictDemandMock.mockRejectedValueOnce(new Error('ML service unavailable'));
+
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/predict-demand')
+      .set(CUSTOMER_HEADERS)
+      .send({
+        hour: 14.5,
+        day_of_week: 3,
+        temperature: 25,
+        precipitation: 0,
+        historical_volume: 50,
+        nearby_drivers: 15,
+      });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('Failed to fetch demand prediction from ML engine.');
+    expect(res.body.details).toBe('ML service unavailable');
   });
 });
