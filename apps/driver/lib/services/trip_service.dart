@@ -118,4 +118,25 @@ class TripService {
           .eq('driver_id', _driverId);
     }
   }
+  Future<void> updateOnlineStatus(bool isOnline) async {
+    await _client
+        .from('drivers')
+        .update({
+          'is_online': isOnline,
+          'last_seen': DateTime.now().toIso8601String(),
+        })
+        .eq('id', _driverId);
+  }
+
+  Future<void> startTrip(String tripDisplayId) async {
+    await _verifyTripOwnership(tripDisplayId);
+    await _client
+        .from('trips')
+        .update({
+          'status': 'in_progress',
+          'started_at': DateTime.now().toIso8601String(),
+        })
+        .eq('trip_display_id', tripDisplayId)
+        .eq('driver_id', _driverId);
+  }
 }

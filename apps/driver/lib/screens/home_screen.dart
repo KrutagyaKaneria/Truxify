@@ -13,6 +13,7 @@ import 'package:truxify_driver/widgets/slide_to_confirm_button.dart';
 import '../core/app_routes.dart';
 import '../data/mock_data.dart';
 import '../services/route_service.dart';
+import '../services/trip_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/map_markers.dart';
@@ -44,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentLocationText = _currentLocationLabel;
   bool _isTripStarted = false;
   bool _showStatusCard = true;
+  final TripService _tripService = TripService();
+  String? _activeTripId;
 
   @override
   void dispose() {
@@ -127,11 +130,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _mapController.move(_currentLocation, _mapZoom);
   }
 
-  void _toggleOnlineState() {
-    setState(() {
-      _isOnline = !_isOnline;
-    });
+  Future<void> _toggleOnlineState() async {
+  final newStatus = !_isOnline;
+  setState(() => _isOnline = newStatus);
+  try {
+    await _tripService.updateOnlineStatus(newStatus);
+  } catch (e) {
+    setState(() => _isOnline = !newStatus);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update status: $e')),
+      );
+    }
   }
+}
 
   void _onMapTap(ll.LatLng point) {
     if (!_isOnline) {
@@ -196,8 +208,25 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _completeRide() {
-    _clearDestination();
+ Future<void> _completeRide() async {
+  if (_activeTripId != null) {
+    try {
+      final stops = await _tripService.fetchTripStops(_activeTripId!);
+      final currentStop = stops.where((s) => s['is_current'] == true).firstOrNull;
+      if (currentStop != null) {
+        await _tripService.markStopCompleted(currentStop['id'], _activeTripId!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to complete trip: $e')),
+        );
+      }
+      return;
+    }
+  }
+  _clearDestination();
+  if (mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Trip completed! Net earnings added to wallet.'),
@@ -205,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -938,17 +967,30 @@ class _HomeScreenState extends State<HomeScreen> {
             SlideToConfirmButton(
               label: 'Slide to Complete Trip',
               backgroundColor: TruxifyColors.success,
-              onConfirmed: _completeRide,
+              onConfirmed: () async {
+              await _completeRide();
+              },
             ),
           ] else ...[
             SlideToConfirmButton(
               label: 'Slide to Start Trip',
               backgroundColor: TruxifyColors.accent,
-              onConfirmed: () {
-                setState(() {
-                  _isTripStarted = true;
-                });
-              },
+              onConfirmed: () async {
+  if (_activeTripId == null) {
+    setState(() => _isTripStarted = true);
+    return;
+  }
+  try {
+    await _tripService.startTrip(_activeTripId!);
+    setState(() => _isTripStarted = true);
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to start trip: $e')),
+      );
+    }
+  }
+},
             ),
             const SizedBox(height: 8),
             Center(
