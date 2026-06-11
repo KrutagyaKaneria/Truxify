@@ -1534,6 +1534,7 @@ values
   ('#FF202605311001', 'Order Placed', now(), true, 10),
   ('#FF202605311001', 'Truck Assigned', null, false, 20),
   ('#FF202605311001', 'En Route to Pickup', null, false, 30),
+  ('#FF202605311001', 'Arrived at Pickup', null, false, 35),
   ('#FF202605311001', 'Goods Loaded', null, false, 40),
   ('#FF202605311001', 'In Transit', null, false, 50),
   ('#FF202605311001', 'Delivered', null, false, 60)
