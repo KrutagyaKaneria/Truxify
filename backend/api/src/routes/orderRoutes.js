@@ -11,9 +11,11 @@ import {
   paramIdSchema,
   acceptBidParamsSchema,
   updateMilestoneSchema,
-  verifyDeliverySchema
+  verifyDeliverySchema,
+  predictDemandSchema
 } from '../validation/requestSchemas.js';
 import { awardReputationPoints } from '../services/reputation.js';
+import { predictDemand } from '../services/ml.js';
 import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
@@ -583,6 +585,22 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
     res.json({ message: 'Delivery verified successfully! Payment released to driver.', order: updatedOrder });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// ============================================================================
+// 9. PREDICT RIDE DEMAND (CUSTOMER OR DRIVER)
+// ============================================================================
+router.post('/predict-demand', authenticate, validateBody(predictDemandSchema), async (req, res) => {
+  try {
+    const prediction = await predictDemand(req.body);
+    return res.json(prediction);
+  } catch (err) {
+    console.error('[ML integration] Demand prediction failed:', err.message);
+    return res.status(502).json({
+      error: 'Failed to fetch demand prediction from ML engine.',
+      details: err.message,
+    });
   }
 });
 

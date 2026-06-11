@@ -90,6 +90,14 @@ export const submitRatingSchema = z.object({
     .max(5, { message: 'Stars must be between 1 and 5' }),
   comment: z.string().trim().max(1000, { message: 'Comment must be 1000 characters or fewer' }).optional().nullable(),
 }).passthrough();
+export const predictDemandSchema = z.object({
+  hour: z.number().min(0).max(23, { message: 'Hour must be between 0 and 23' }),
+  day_of_week: z.number().min(0).max(6, { message: 'Day of week must be between 0 and 6' }),
+  temperature: z.number(),
+  precipitation: z.number().nonnegative({ message: 'Precipitation must be greater than or equal to 0' }),
+  historical_volume: z.number().nonnegative({ message: 'Historical volume must be greater than or equal to 0' }),
+  nearby_drivers: z.number().nonnegative({ message: 'Nearby drivers must be greater than or equal to 0' }),
+}).passthrough();
 
 export const updateMilestoneSchema = z.object({
   milestone: z.enum(['Truck Assigned', 'En Route to Pickup', 'Goods Loaded', 'In Transit', 'Arriving', 'Delivered'], {
