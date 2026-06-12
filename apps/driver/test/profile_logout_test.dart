@@ -65,6 +65,7 @@ void main() {
 
     await tester.tap(find.text('Logout'));
     await _pumpTransition(tester);
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Welcome, Driver'), findsOneWidget);
     expect(find.text('Logout'), findsNothing);
