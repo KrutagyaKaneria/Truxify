@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import '../services/order_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/offline/websocket/resilient_websocket.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/timeline_connector.dart';
@@ -20,13 +22,19 @@ class LiveTrackingScreen extends StatefulWidget {
 }
 
 class _LiveTrackingScreenState extends State<LiveTrackingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _truckController;
+  late final AnimationController _movementController;
   late final OrderService _orderService;
   List<Map<String, dynamic>> _timeline = [];
   Map<String, dynamic>? _order;
   RealtimeChannel? _ordersChannel;
   List<LatLng> _routePoints = const [_fallbackPickupPoint, _fallbackDropPoint];
+
+  LatLng? _previousPosition;
+  LatLng? _currentPosition;
+  ResilientWebSocket? _trackingWebSocket;
+  StreamSubscription? _trackingSubscription;
 
   @override
   void initState() {
@@ -36,17 +44,91 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     _truckController =
         AnimationController(vsync: this, duration: const Duration(seconds: 9))
           ..repeat();
+    _movementController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
 
     _loadOrder();
     _loadTimeline();
     _subscribeToOrderUpdates();
+    _subscribeToTracking();
   }
 
   @override
   void dispose() {
     _truckController.dispose();
+    _movementController.dispose();
     _ordersChannel?.unsubscribe();
+    _trackingSubscription?.cancel();
+    _trackingWebSocket?.close();
     super.dispose();
+  }
+
+  void _subscribeToTracking() {
+    final session = Supabase.instance.client.auth.currentSession;
+    final token = session?.accessToken ?? '';
+
+    final apiBaseUrl = OrderService.defaultApiBaseUrl;
+    final wsScheme = apiBaseUrl.startsWith('https') ? 'wss' : 'ws';
+    final hostPort = apiBaseUrl.replaceFirst(RegExp(r'^https?://'), '');
+    final wsUrl = '$wsScheme://$hostPort/ws/tracking?token=$token';
+
+    debugPrint('Connecting to tracking WebSocket at: $wsUrl');
+
+    _trackingWebSocket = ResilientWebSocket(
+      wsUrl,
+      onConnect: () {
+        debugPrint('WebSocket connected, subscribing to order updates...');
+        _trackingWebSocket?.send({
+          'event': 'subscribe_tracking',
+          'data': {
+            'order_display_id': widget.orderId,
+          },
+        });
+      },
+    );
+
+    _trackingSubscription = _trackingWebSocket!.stream.listen((message) {
+      debugPrint('Tracking WebSocket message received: $message');
+      try {
+        if (message == 'pong') return;
+        final payload = jsonDecode(message as String) as Map<String, dynamic>;
+
+        if (payload['event'] == 'location_update') {
+          final data = payload['data'] as Map<String, dynamic>?;
+          if (data != null) {
+            final lat = (data['latitude'] as num?)?.toDouble();
+            final lng = (data['longitude'] as num?)?.toDouble();
+
+            if (lat != null && lng != null && mounted) {
+              _updateTruckPosition(LatLng(lat, lng));
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error parsing tracking WebSocket message: $e');
+      }
+    });
+
+    _trackingWebSocket!.connect();
+  }
+
+  void _updateTruckPosition(LatLng newPosition) {
+    if (!mounted) return;
+
+    if (_currentPosition == null) {
+      setState(() {
+        _currentPosition = newPosition;
+      });
+      return;
+    }
+
+    setState(() {
+      _previousPosition = _currentPosition;
+      _currentPosition = newPosition;
+    });
+    _movementController.forward(from: 0.0);
   }
 
   Future<void> _loadOrder() async {
@@ -348,8 +430,23 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     );
   }
 
-  List<Marker> _buildTruckMarkers(double animationProgress) {
-    final point = _pointAlongRoute(0.5);
+  List<Marker> _buildTruckMarkers() {
+    if (_currentPosition == null) {
+      return const [];
+    }
+
+    LatLng point;
+    if (_previousPosition != null && _movementController.isAnimating) {
+      final t = _movementController.value;
+      point = LatLng(
+        _previousPosition!.latitude +
+            (_currentPosition!.latitude - _previousPosition!.latitude) * t,
+        _previousPosition!.longitude +
+            (_currentPosition!.longitude - _previousPosition!.longitude) * t,
+      );
+    } else {
+      point = _currentPosition!;
+    }
 
     return [
       Marker(
@@ -420,7 +517,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
         children: [
           Positioned.fill(
             child: AnimatedBuilder(
-              animation: _truckController,
+              animation: Listenable.merge([_truckController, _movementController]),
               builder: (context, child) {
                 return FlutterMap(
                   options: const MapOptions(
@@ -461,7 +558,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                           child: Icon(Icons.place_rounded,
                               color: Colors.redAccent, size: 26),
                         ),
-                        ..._buildTruckMarkers(_truckController.value),
+                        ..._buildTruckMarkers(),
                       ],
                     ),
                   ],
