@@ -214,6 +214,14 @@ erDiagram
         text comment
     }
 
+    processed_batches {
+        uuid id PK
+        text idempotency_key
+        uuid user_id
+        int event_count
+        timestamptz processed_at
+    }
+
     wallet_transactions {
         uuid id PK
         uuid driver_id
@@ -310,6 +318,7 @@ erDiagram
     trips ||--o{ route_map_points : "trip_display_id"
 
     profiles ||--o{ wallet_transactions : "driver_id"
+    profiles ||--o{ processed_batches : "user_id"
     profiles ||--o{ earnings_daily : "driver_id"
     profiles ||--o{ driver_milestones : "driver_id"
     milestones ||--o{ driver_milestones : "milestone_id"
@@ -357,6 +366,10 @@ graph LR
     subgraph FINANCE["💰 Finance Layer"]
         WT[wallet_transactions]
         ED[earnings_daily]
+    end
+
+    subgraph OP["⚙️ Operational Layer"]
+        PB[processed_batches]
     end
 
     subgraph ENGAGEMENT["⭐ Engagement Layer"]
@@ -448,6 +461,12 @@ graph LR
 |-------|---------|-------------|----------|
 | `wallet_transactions` | Driver earnings/withdrawals ledger | `driver_id`, `amount`, `txn_type`, `status` | `profiles.id` |
 | `earnings_daily` | Pre-aggregated daily chart data | `driver_id`, `day_date`, `amount`, `trip_count`, `hours_driven` | `profiles.id` |
+
+### ⚙️ Operational Layer (1 table)
+
+| Table | Purpose | Key Columns | Links To |
+|-------|---------|-------------|----------|
+| `processed_batches` | Offline sync / event idempotency tracking | `idempotency_key`, `user_id`, `event_count`, `processed_at` | `profiles.id` |
 
 ### ⭐ Engagement Layer (6 tables)
 

@@ -83,4 +83,21 @@ describe('Database Schema Constraints and RPC Upsert validation in supabase_setu
     // There should be at least two such insert statements matching the upsert behavior across the RPC overloads
     expect(insertMatches.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('contains the processed_batches table required for offline sync idempotency', async () => {
+    const setupSqlPath = path.resolve(
+      __dirname,
+      '../../../../docs/supabase_setup.sql'
+    );
+
+    const sqlContent = await fs.readFile(setupSqlPath, 'utf8');
+
+    expect(
+      /create\s+table\s+if\s+not\s+exists\s+processed_batches/i.test(sqlContent)
+    ).toBe(true);
+
+    expect(
+      /idempotency_key\s+text\s+not\s+null\s+unique/i.test(sqlContent)
+    ).toBe(true);
+  });
 });
