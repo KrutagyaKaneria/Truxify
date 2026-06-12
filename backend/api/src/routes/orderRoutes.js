@@ -756,9 +756,8 @@ router.post('/:id/cancel', authenticate, requireRole(['customer']), validatePara
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     if (order.customer_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
 
-    const cancellableStatuses = ['pending', 'in_progress', 'truck_assigned', 'picked_up'];
-    if (!cancellableStatuses.includes(order.status)) {
-      return res.status(400).json({ error: `Order cannot be cancelled in status "${order.status}".` });
+    if (['delivered', 'payment_released'].includes(order.status)) {
+      return res.status(400).json({ error: 'Order cannot be cancelled after delivery or payment release.' });
     }
 
     const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update({ status: 'cancelled', cancellation_reason: reason, updated_at: new Date().toISOString() }).eq('order_display_id', orderId).select('cancellation_fee, order_display_id, status, cancellation_reason').single();
