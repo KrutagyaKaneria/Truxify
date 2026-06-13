@@ -13,7 +13,9 @@ import 'package:truxify_driver/widgets/slide_to_confirm_button.dart';
 
 import '../core/app_routes.dart';
 import '../data/mock_data.dart';
+import '../services/geocode_service.dart';
 import '../services/route_service.dart';
+import '../services/trip_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/map_markers.dart';
@@ -45,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentLocationText;
   bool _isTripStarted = false;
   bool _showStatusCard = true;
+  final TripService _tripService = TripService();
+  String? _activeTripId;
   bool _isLoadingLocation = true;
   String? _locationError;
 
@@ -83,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _currentLocationText = address;
       });
+      await _loadActiveTrip();
     } else {
       setState(() {
         _isLoadingLocation = false;
@@ -258,10 +263,75 @@ class _HomeScreenState extends State<HomeScreen> {
     _mapController.move(_currentLocation!, _mapZoom);
   }
 
-  void _toggleOnlineState() {
-    setState(() {
-      _isOnline = !_isOnline;
-    });
+  Future<void> _loadActiveTrip() async {
+    if (!_isOnline) return;
+    try {
+      final trips = await _tripService.fetchTrips(status: 'active');
+      if (trips.isNotEmpty) {
+        final activeTrip = trips.first;
+        final tripId = activeTrip['trip_display_id'] as String;
+        final stops = await _tripService.fetchTripStops(tripId);
+        if (!mounted) return;
+        
+        setState(() {
+          _activeTripId = tripId;
+          _isTripStarted = stops.any((s) => s['is_completed'] == true || s['is_current'] == true);
+        });
+        
+        if (stops.isNotEmpty) {
+          final lastStop = stops.last;
+          final address = lastStop['drop_location'] as String;
+          final dropPoint = await GeocodeService.resolvePlace(address);
+          if (dropPoint != null && mounted) {
+            setState(() {
+              _destination = DestinationPickResult(address: address, point: dropPoint);
+              final routePoints = <ll.LatLng>[_currentLocation ?? dropPoint, dropPoint];
+              _routeFuture = RouteService.fetchRouteGeoJson(routePoints).onError(
+                (_, __) => routePoints,
+              );
+            });
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _activeTripId = null;
+            _isTripStarted = false;
+            _destination = null;
+            _routeFuture = null;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading active trip: $e');
+    }
+  }
+
+  Future<void> _toggleOnlineState() async {
+    final newStatus = !_isOnline;
+    setState(() => _isOnline = newStatus);
+    try {
+      await _tripService.updateOnlineStatus(newStatus);
+      if (newStatus) {
+        await _loadActiveTrip();
+      } else {
+        if (mounted) {
+          setState(() {
+            _activeTripId = null;
+            _isTripStarted = false;
+            _destination = null;
+            _routeFuture = null;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isOnline = !newStatus);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update status: $e')),
+        );
+      }
+    }
   }
 
   void _onMapTap(ll.LatLng point) {
@@ -331,8 +401,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _completeRide() {
-    _clearDestination();
+ Future<void> _completeRide() async {
+  if (_activeTripId != null) {
+    try {
+      final stops = await _tripService.fetchTripStops(_activeTripId!);
+      final currentStop = stops.where((s) => s['is_current'] == true).firstOrNull;
+      if (currentStop != null) {
+        await _tripService.markStopCompleted(currentStop['id'], _activeTripId!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to complete trip: $e')),
+        );
+      }
+      return;
+    }
+  }
+  _clearDestination();
+  if (mounted) {
+    setState(() {
+      _activeTripId = null;
+      _isTripStarted = false;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Trip completed! Net earnings added to wallet.'),
@@ -340,6 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
   /// Short readable label for the current location.
   String get _currentLocationLabel {
@@ -351,7 +443,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return 'Current Location';
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -881,11 +972,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: TruxifyColors.success,
+                      color: _isOnline ? TruxifyColors.success : TruxifyColors.secondaryText,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: TruxifyColors.success.withValues(alpha: 0.4),
+                          color: (_isOnline ? TruxifyColors.success : TruxifyColors.secondaryText).withOpacity(0.4),
                           blurRadius: 6,
                           spreadRadius: 2,
                         ),
@@ -894,7 +985,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Online & Ready',
+                    _isOnline ? 'Online & Ready' : 'Offline',
                     style: GoogleFonts.dmSans(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
@@ -903,13 +994,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+              Switch(
+                value: _isOnline,
+                onChanged: (_) => _toggleOnlineState(),
+                activeColor: TruxifyColors.success,
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            _isLoadingLocation
-                ? 'Radar active. Fetching your location...'
-                : 'Radar active. Looking for load assignments near $_currentLocationLabel...',
+            !_isOnline
+                ? 'Offline. Go online to receive load assignments.'
+                : _isLoadingLocation
+                    ? 'Radar active. Fetching your location...'
+                    : 'Radar active. Looking for load assignments near $_currentLocationLabel...',
             style: GoogleFonts.dmSans(
               fontSize: 11,
               color: TruxifyColors.adaptiveSecondaryText(context),
@@ -1149,16 +1247,31 @@ class _HomeScreenState extends State<HomeScreen> {
             SlideToConfirmButton(
               label: 'Slide to Complete Trip',
               backgroundColor: TruxifyColors.success,
-              onConfirmed: _completeRide,
+              onConfirmed: () async {
+              await _completeRide();
+              },
             ),
           ] else ...[
             SlideToConfirmButton(
               label: 'Slide to Start Trip',
               backgroundColor: TruxifyColors.accent,
-              onConfirmed: () {
-                setState(() {
-                  _isTripStarted = true;
-                });
+              onConfirmed: () async {
+                if (_activeTripId == null) {
+                  setState(() => _isTripStarted = true);
+                  return;
+                }
+                try {
+                  await _tripService.startTrip(_activeTripId!);
+                  if (mounted) {
+                    setState(() => _isTripStarted = true);
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to start trip: $e')),
+                    );
+                  }
+                }
               },
             ),
             const SizedBox(height: 8),

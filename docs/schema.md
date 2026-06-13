@@ -1,6 +1,6 @@
 # 📊 Truxify — Database Schema
 
-> **26 tables · 4 RPC functions · 0 foreign keys**
+> **27 tables · 4 RPC functions · 0 foreign keys**
 > All relationships are logical (application-layer joins). No wired constraints.
 
 ---
@@ -126,6 +126,7 @@ erDiagram
         text goods_type
         numeric weight_tonnes
         int total_amount
+        text cancellation_reason
         text driver_name
         text eta
     }
@@ -212,6 +213,14 @@ erDiagram
         uuid driver_id
         smallint stars
         text comment
+    }
+
+    processed_batches {
+        uuid id PK
+        text idempotency_key
+        uuid user_id
+        int event_count
+        timestamptz processed_at
     }
 
     wallet_transactions {
@@ -310,6 +319,7 @@ erDiagram
     trips ||--o{ route_map_points : "trip_display_id"
 
     profiles ||--o{ wallet_transactions : "driver_id"
+    profiles ||--o{ processed_batches : "user_id"
     profiles ||--o{ earnings_daily : "driver_id"
     profiles ||--o{ driver_milestones : "driver_id"
     milestones ||--o{ driver_milestones : "milestone_id"
@@ -357,6 +367,10 @@ graph LR
     subgraph FINANCE["💰 Finance Layer"]
         WT[wallet_transactions]
         ED[earnings_daily]
+    end
+
+    subgraph OP["⚙️ Operational Layer"]
+        PB[processed_batches]
     end
 
     subgraph ENGAGEMENT["⭐ Engagement Layer"]
@@ -420,7 +434,7 @@ graph LR
 
 | Table | Purpose | Key Columns | Links To |
 |-------|---------|-------------|----------|
-| `orders` | Core booking record | `order_display_id`, `customer_id`, `driver_id`, `status` | `profiles.id`, `trucks.id` |
+| `orders` | Core booking record | `order_display_id`, `customer_id`, `driver_id`, `status`, `cancellation_reason` | `profiles.id`, `trucks.id` |
 | `order_timeline` | Milestone events per order | `order_display_id`, `milestone`, `completed` | `orders.order_display_id` |
 | `saved_addresses` | Customer saved locations | `user_id`, `label`, `lat/lng` | `profiles.id` |
 | `payment_methods` | Customer payment options | `user_id`, `method_type`, `display_label` | `profiles.id` |
@@ -448,6 +462,12 @@ graph LR
 |-------|---------|-------------|----------|
 | `wallet_transactions` | Driver earnings/withdrawals ledger | `driver_id`, `amount`, `txn_type`, `status` | `profiles.id` |
 | `earnings_daily` | Pre-aggregated daily chart data | `driver_id`, `day_date`, `amount`, `trip_count`, `hours_driven` | `profiles.id` |
+
+### ⚙️ Operational Layer (1 table)
+
+| Table | Purpose | Key Columns | Links To |
+|-------|---------|-------------|----------|
+| `processed_batches` | Offline sync / event idempotency tracking | `idempotency_key`, `user_id`, `event_count`, `processed_at` | `profiles.id` |
 
 ### ⭐ Engagement Layer (6 tables)
 

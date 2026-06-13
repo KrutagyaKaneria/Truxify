@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import tripRoutes from './routes/tripRoutes.js';
+import deviceRoutes from './routes/deviceRoutes.js';
 
 import { closeDbConnections } from './config/db.js';
 import { closeWebSocketServer, initWebSocketServer } from './sockets/tracker.js';
@@ -15,6 +16,7 @@ import orderRoutes from './routes/orderRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
 import supportRoutes from './routes/supportRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
+import truckRoutes from './routes/truckRoutes.js';
 
 // Configuration load from root folder is handled in db.js
 
@@ -131,6 +133,24 @@ app.use(express.json({ limit: '1mb' })); // Added payload limit for security
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ============================================================================
+// REQUEST LOGGER — registered before all routes and rate limiters so that every
+// incoming request (including those that get rate-limited or 404) is logged.
+// ============================================================================
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const color = res.statusCode >= 500 ? '\x1b[31m'
+                : res.statusCode >= 400 ? '\x1b[33m'
+                : res.statusCode >= 200 ? '\x1b[32m' : '\x1b[0m';
+    console.log(
+      `${color}[${new Date().toISOString()}] ${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)\x1b[0m`
+    );
+  });
+  next();
+});
+
+// ============================================================================
 // RATE LIMITING
 // ============================================================================
 
@@ -154,23 +174,6 @@ app.use('/api/health', healthLimiter);
 app.use('/api/v1/trips', tripRoutes);
 
 // ============================================================================
-// REQUEST LOGGER
-// ============================================================================
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    const color = res.statusCode >= 500 ? '\x1b[31m'
-                : res.statusCode >= 400 ? '\x1b[33m'
-                : res.statusCode >= 200 ? '\x1b[32m' : '\x1b[0m';
-    console.log(
-      `${color}[${new Date().toISOString()}] ${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)\x1b[0m`
-    );
-  });
-  next();
-});
-
-// ============================================================================
 // REST API ROUTING
 // ============================================================================
 app.get('/api/health', (req, res) => {
@@ -190,6 +193,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/devices', deviceRoutes);
+app.use('/api/trucks', truckRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.send('<h1>Truxify Backend API is running.</h1><p>Use WebSockets at <code>ws://localhost:5000/ws/tracking</code></p>');
