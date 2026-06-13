@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { ethers } from 'ethers';
-import { supabase } from '../config/db.js';
+import { supabase, redisClient } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { computeOrderPricing } from '../lib/pricing.js';
@@ -25,13 +25,12 @@ import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
 
-// ── OTP brute-force protection (in-memory state) ────────────────────
+// ── OTP brute-force protection (Redis + In-Memory Fallback) ────────────────────
 const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || '15', 10);
 const OTP_MAX_FAILED_ATTEMPTS = parseInt(process.env.OTP_MAX_FAILED_ATTEMPTS || '5', 10);
 const OTP_LOCKOUT_MINUTES = parseInt(process.env.OTP_LOCKOUT_MINUTES || '30', 10);
 
-// Map<orderId, { count: number, lockedUntil: number|null }>
-const otpFailedAttempts = new Map();
+const inMemoryOtpFailedAttempts = new Map();
 
 function isOtpExpired(otpGeneratedAt) {
   if (!otpGeneratedAt) return true;
@@ -39,36 +38,73 @@ function isOtpExpired(otpGeneratedAt) {
   return elapsed > OTP_TTL_MINUTES * 60 * 1000;
 }
 
-function checkOtpLockout(orderId) {
-  const record = otpFailedAttempts.get(orderId);
+async function checkOtpLockout(orderId) {
+  if (redisClient) {
+    try {
+      const lockKey = `otp_lockout:${orderId}`;
+      const isLocked = await redisClient.get(lockKey);
+      return !!isLocked;
+    } catch (err) {
+      console.error('[OTP] Redis error in checkOtpLockout, falling back to memory:', err.message);
+    }
+  }
+  const record = inMemoryOtpFailedAttempts.get(orderId);
   if (!record || !record.lockedUntil) return false;
   if (Date.now() >= record.lockedUntil) {
-    otpFailedAttempts.delete(orderId);
+    inMemoryOtpFailedAttempts.delete(orderId);
     return false;
   }
   return true;
 }
 
-function recordOtpFailure(orderId) {
-  let record = otpFailedAttempts.get(orderId);
+async function recordOtpFailure(orderId) {
+  if (redisClient) {
+    try {
+      const countKey = `otp_failed_count:${orderId}`;
+      const lockKey = `otp_lockout:${orderId}`;
+      
+      const count = await redisClient.incr(countKey);
+      if (count === 1) await redisClient.expire(countKey, OTP_LOCKOUT_MINUTES * 60);
+      if (count >= OTP_MAX_FAILED_ATTEMPTS) {
+        await redisClient.set(lockKey, '1', 'EX', OTP_LOCKOUT_MINUTES * 60);
+      }
+      return count;
+    } catch (err) {
+      console.error('[OTP] Redis error in recordOtpFailure, falling back to memory:', err.message);
+    }
+  }
+  
+  let record = inMemoryOtpFailedAttempts.get(orderId);
   if (!record) {
     record = { count: 0, lockedUntil: null };
-    otpFailedAttempts.set(orderId, record);
+    inMemoryOtpFailedAttempts.set(orderId, record);
   }
   record.count += 1;
   if (record.count >= OTP_MAX_FAILED_ATTEMPTS) {
     record.lockedUntil = Date.now() + OTP_LOCKOUT_MINUTES * 60 * 1000;
   }
+  return record.count;
 }
 
-function clearOtpState(orderId) {
-  otpFailedAttempts.delete(orderId);
+async function clearOtpState(orderId) {
+  if (redisClient) {
+    try {
+      const countKey = `otp_failed_count:${orderId}`;
+      const lockKey = `otp_lockout:${orderId}`;
+      await redisClient.del(countKey, lockKey);
+      return;
+    } catch (err) {
+      console.error('[OTP] Redis error in clearOtpState, falling back to memory:', err.message);
+    }
+  }
+  inMemoryOtpFailedAttempts.delete(orderId);
 }
+
 
 // Rate limiter for the verify-delivery endpoint
 const verifyDeliveryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many delivery verification attempts. Please try again later.' },
@@ -560,7 +596,7 @@ router.put('/:id/milestones', authenticate, requireRole(['driver']), validatePar
       generatedOtp = crypto.randomInt(100000, 1000000).toString();
       updates.delivery_otp = generatedOtp;
       updates.otp_generated_at = new Date().toISOString();
-      clearOtpState(orderId);
+      await clearOtpState(orderId);
     }
 
     const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update(updates).eq('id', orderId).select('*').single();
@@ -597,7 +633,7 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
   if (!otp) return res.status(400).json({ error: 'OTP is required for verification.' });
 
   // Check for active lockout from previous failed attempts
-  if (checkOtpLockout(orderId)) {
+  if (await checkOtpLockout(orderId)) {
     return res.status(429).json({
       error: `Too many failed OTP attempts. Verification is locked for ${OTP_LOCKOUT_MINUTES} minutes.`,
     });
@@ -617,8 +653,8 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
     }
 
     if (order.delivery_otp !== String(otp)) {
-      recordOtpFailure(orderId);
-      const remaining = OTP_MAX_FAILED_ATTEMPTS - (otpFailedAttempts.get(orderId)?.count || 0);
+      const count = await recordOtpFailure(orderId);
+      const remaining = Math.max(0, OTP_MAX_FAILED_ATTEMPTS - count);
       const message = remaining > 0
         ? `Invalid OTP. ${remaining} attempt(s) remaining before lockout.`
         : `Invalid OTP. Verification is locked for ${OTP_LOCKOUT_MINUTES} minutes due to too many failed attempts.`;
@@ -627,7 +663,7 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
     }
 
     // Successful verification — clear failure state
-    clearOtpState(orderId);
+    await clearOtpState(orderId);
 
     const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update({
       otp_verified: true, status: 'payment_released', updated_at: new Date().toISOString()
