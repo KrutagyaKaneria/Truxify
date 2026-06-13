@@ -74,6 +74,7 @@ create table if not exists profiles (
   language      text not null default 'en',
   dark_mode     boolean not null default false,
   is_active     boolean not null default true,
+  polygon_wallet_address text,                                  -- Polygon wallet address for escrow deposits
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
@@ -1475,12 +1476,14 @@ $$;
 -- Passwords / auth tokens are managed by Firebase Auth, not Supabase.
 
 -- Seed Profiles (1 customer + 1 driver)
-insert into profiles (id, firebase_uid, role, full_name, phone, email, company_name, language)
+insert into profiles (id, firebase_uid, role, full_name, phone, email, company_name, language, polygon_wallet_address)
 values
   ('a1111111-1111-1111-1111-111111111111', 'firebase_customer_001', 'customer',
-   'Rajesh Kumar', '+919876543210', 'rajesh@truxify.dev', 'Kumar Logistics', 'en'),
+   'Rajesh Kumar', '+919876543210', 'rajesh@truxify.dev', 'Kumar Logistics', 'en',
+   '0x1234567890abcdef1234567890abcdef12345678'),
   ('b2222222-2222-2222-2222-222222222222', 'firebase_driver_001', 'driver',
-   'Suresh Yadav', '+919988776655', 'suresh@truxify.dev', null, 'hi')
+   'Suresh Yadav', '+919988776655', 'suresh@truxify.dev', null, 'hi',
+   null)
 on conflict (firebase_uid) do nothing;
 
 -- Seed Customer Stats
@@ -1501,11 +1504,12 @@ on conflict do nothing;
 
 -- Seed Driver Details
 insert into driver_details (user_id, truck_id, rating, total_trips, completion_rate,
-  is_online, wallet_confirmed, wallet_pending, wallet_total)
+  is_online, wallet_confirmed, wallet_pending, wallet_total, polygon_wallet_address)
 values
   ('b2222222-2222-2222-2222-222222222222',
    'c3333333-3333-3333-3333-333333333333',
-   4.72, 148, 96.50, true, 4500000, 750000, 5250000)
+   4.72, 148, 96.50, true, 4500000, 750000, 5250000,
+   '0xAbcdef1234567890Abcdef1234567890Abcdef12')
 on conflict (user_id) do nothing;
 
 -- Seed Tyre Diagnostics
