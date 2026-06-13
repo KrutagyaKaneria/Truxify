@@ -121,7 +121,7 @@ describe('tracker WebSocket telemetry authorization', () => {
 
     await handleSubscribe(ws, { order_display_id: 'ORDER-123' });
 
-    expect(sentMessages).toEqual([{ status: 'subscribed', target: 'ORDER-123' }]);
+    expect(sentMessages).toEqual([{ status: 'subscribed', target: 'ORDER-123', reconnect_supported: true }]);
   });
 
   it('allows a driver to subscribe only to their own driver tracking stream', async () => {
@@ -136,7 +136,7 @@ describe('tracker WebSocket telemetry authorization', () => {
 
     await handleSubscribe(ws, { driver_id: 'driver-owner' });
 
-    expect(sentMessages).toEqual([{ status: 'subscribed', target: 'driver-owner' }]);
+    expect(sentMessages).toEqual([{ status: 'subscribed', target: 'driver-owner', reconnect_supported: true }]);
   });
 });
 
@@ -715,7 +715,7 @@ describe('removeClientFromAllSubscriptions', () => {
 
     await handleSubscribe(ws, { driver_id: 'driver-1' });
 
-    __testing.removeClientFromAllSubscriptions(ws);
+    await __testing.removeClientFromAllSubscriptions(ws);
 
     // Subscription should be cleaned up — no error thrown
     expect(true).toBe(true);
@@ -729,7 +729,7 @@ describe('removeClientFromAllSubscriptions', () => {
     };
 
     await handleSubscribe(ws, { driver_id: 'driver-2' });
-    __testing.removeClientFromAllSubscriptions(ws);
+    await __testing.removeClientFromAllSubscriptions(ws);
 
     // Subscribe again to verify map was cleaned (no duplicate sets)
     const ws2 = {
@@ -739,7 +739,75 @@ describe('removeClientFromAllSubscriptions', () => {
     };
     await handleSubscribe(ws2, { driver_id: 'driver-2' });
     expect(ws2.send).toHaveBeenCalledWith(
-      JSON.stringify({ status: 'subscribed', target: 'driver-2' })
+      JSON.stringify({ status: 'subscribed', target: 'driver-2', reconnect_supported: true })
+    );
+  });
+});
+
+describe('tracker Redis subscription metadata', () => {
+  it('persists subscriptions in Redis when available', async () => {
+    const sadd = vi.fn().mockResolvedValue(1);
+    const expire = vi.fn().mockResolvedValue(1);
+
+    vi.resetModules();
+    vi.doMock('../../src/config/db.js', () => ({
+      mongoDb: null,
+      redisClient: { sadd, expire, srem: vi.fn() },
+      firebaseAdmin: null,
+      supabase: null,
+    }));
+
+    const { handleSubscribe: subscribeWithRedis } = await import('../../src/sockets/tracker.js');
+    const sentMessages = [];
+    const ws = {
+      user: { id: 'driver-redis', role: 'driver' },
+      driverId: 'driver-redis',
+      send(msg) { sentMessages.push(JSON.parse(msg)); },
+    };
+
+    await subscribeWithRedis(ws, { driver_id: 'driver-redis' });
+
+    expect(sadd).toHaveBeenCalledWith('tracking:subscriptions:driver-redis', 'driver-redis');
+    expect(expire).toHaveBeenCalledWith('tracking:subscriptions:driver-redis', 3600);
+    expect(sentMessages[0]).toEqual({
+      status: 'subscribed',
+      target: 'driver-redis',
+      reconnect_supported: true,
+    });
+  });
+
+  it('cleans up Redis subscription metadata on disconnect and supports re-subscription after reconnect', async () => {
+    const sadd = vi.fn().mockResolvedValue(1);
+    const expire = vi.fn().mockResolvedValue(1);
+    const srem = vi.fn().mockResolvedValue(1);
+
+    vi.resetModules();
+    vi.doMock('../../src/config/db.js', () => ({
+      mongoDb: null,
+      redisClient: { sadd, expire, srem },
+      firebaseAdmin: null,
+      supabase: null,
+    }));
+
+    const { handleSubscribe: subscribeWithRedis, __testing: redisTesting } = await import('../../src/sockets/tracker.js');
+    const ws = {
+      user: { id: 'driver-reconnect', role: 'driver' },
+      driverId: 'driver-reconnect',
+      subscriptionTargets: new Set(),
+      send: vi.fn(),
+    };
+
+    await subscribeWithRedis(ws, { driver_id: 'driver-reconnect' });
+    await redisTesting.removeClientFromAllSubscriptions(ws);
+    await subscribeWithRedis(ws, { driver_id: 'driver-reconnect' });
+
+    expect(srem).toHaveBeenCalledWith('tracking:subscriptions:driver-reconnect', 'driver-reconnect');
+    expect(ws.send).toHaveBeenLastCalledWith(
+      JSON.stringify({
+        status: 'subscribed',
+        target: 'driver-reconnect',
+        reconnect_supported: true,
+      })
     );
   });
 });

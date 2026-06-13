@@ -204,12 +204,16 @@ export function initWebSocketServer(server) {
 
     ws.on('close', () => {
       console.log('🔌 WebSocket connection closed.');
-      removeClientFromAllSubscriptions(ws);
+      void (async () => {
+        await removeClientFromAllSubscriptions(ws);
+      })();
     });
 
     ws.on('error', (err) => {
       console.error('🔌 WebSocket client error:', err.message);
-      removeClientFromAllSubscriptions(ws);
+      void (async () => {
+        await removeClientFromAllSubscriptions(ws);
+      })();
     });
   });
 
@@ -264,7 +268,7 @@ export async function handleTrackingMessage(ws, message) {
         break;
 
       case 'unsubscribe_tracking':
-        handleUnsubscribe(ws, data);
+        await handleUnsubscribe(ws, data);
         break;
 
       default:
@@ -503,8 +507,23 @@ export async function handleSubscribe(ws, data) {
   }
 
   trackingSubscriptions.get(targetId).add(ws);
+  ws.subscriptionTargets ??= new Set();
+  ws.subscriptionTargets.add(targetId);
+
+  if (redisClient) {
+    try {
+      const subscriberId = ws.user?.id || ws.driverId;
+      if (subscriberId) {
+        await redisClient.sadd(`tracking:subscriptions:${targetId}`, subscriberId);
+        await redisClient.expire(`tracking:subscriptions:${targetId}`, 3600);
+      }
+    } catch (err) {
+      console.error('Redis subscription persistence error:', err.message);
+    }
+  }
+
   console.log(`🔌 Client subscribed to telemetry updates for: "${targetId}"`);
-  ws.send(JSON.stringify({ status: 'subscribed', target: targetId }));
+  ws.send(JSON.stringify({ status: 'subscribed', target: targetId, reconnect_supported: true }));
 }
 
 async function canSubscribe(ws, { order_display_id, driver_id }) {
@@ -544,18 +563,44 @@ async function canSubscribe(ws, { order_display_id, driver_id }) {
   return order.customer_id === userId || order.driver_id === userId;
 }
 
-function handleUnsubscribe(ws, data) {
+async function handleUnsubscribe(ws, data) {
   const { order_display_id, driver_id } = data;
   const targetId = order_display_id || driver_id;
 
   if (targetId && trackingSubscriptions.has(targetId)) {
     trackingSubscriptions.get(targetId).delete(ws);
+    ws.subscriptionTargets?.delete(targetId);
+
+    if (redisClient) {
+      const subscriberId = ws.user?.id || ws.driverId;
+      try {
+        if (subscriberId) {
+          await redisClient.srem(`tracking:subscriptions:${targetId}`, subscriberId);
+        }
+      } catch (err) {
+        console.error('Redis subscription cleanup error:', err.message);
+      }
+    }
+
     console.log(`🔌 Client unsubscribed from updates for: "${targetId}"`);
     ws.send(JSON.stringify({ status: 'unsubscribed', target: targetId }));
   }
 }
 
-function removeClientFromAllSubscriptions(ws) {
+async function removeClientFromAllSubscriptions(ws) {
+  if (redisClient && ws.subscriptionTargets?.size) {
+    const subscriberId = ws.user?.id || ws.driverId;
+    if (subscriberId) {
+      for (const targetId of ws.subscriptionTargets) {
+        try {
+          await redisClient.srem(`tracking:subscriptions:${targetId}`, subscriberId);
+        } catch (err) {
+          console.error('Redis subscription cleanup error:', err.message);
+        }
+      }
+    }
+  }
+
   trackingSubscriptions.forEach((clients, key) => {
     if (clients.has(ws)) {
       clients.delete(ws);
