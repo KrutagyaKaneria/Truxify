@@ -600,14 +600,27 @@ async function removeClientFromAllSubscriptions(ws) {
 }
 
 async function restoreSubscriptions(ws) {
-  if (!redisClient || !ws.user?.id) return;
+  const subscriberId = ws.user?.id || ws.driverId;
+  if (!redisClient || !subscriberId) return;
 
   try {
-    const targets = await redisClient.smembers(`user:subscriptions:${ws.user.id}`);
+    const targets = await redisClient.smembers(`user:subscriptions:${subscriberId}`);
 
     ws.subscriptionTargets ??= new Set();
 
     for (const targetId of targets) {
+      const allowed = await canSubscribe(
+        ws,
+        targetId.startsWith('ORDER-')
+          ? { order_display_id: targetId }
+          : { driver_id: targetId }
+      );
+
+      if (!allowed) {
+        await redisClient.srem(`user:subscriptions:${subscriberId}`, targetId);
+        continue;
+      }
+
       if (!trackingSubscriptions.has(targetId)) {
         trackingSubscriptions.set(targetId, new Set());
       }

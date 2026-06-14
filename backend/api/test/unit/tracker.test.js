@@ -834,27 +834,42 @@ describe('tracker Redis subscription metadata', () => {
     expect(ws.subscriptionTargets.has('driver-1')).toBe(true);
   });
 
-  it('restores subscriptions from Redis on reconnect after a fresh socket is authenticated', async () => {
-    const smembers = vi.fn().mockResolvedValue(['driver-1']);
+  it('does not restore unauthorized subscriptions and prunes stale Redis entries', async () => {
+    const smembers = vi.fn().mockResolvedValue(['ORDER-1']);
+    const srem = vi.fn().mockResolvedValue(1);
 
     vi.resetModules();
     vi.doMock('../../src/config/db.js', () => ({
       mongoDb: null,
-      redisClient: { sadd: vi.fn(), smembers, srem: vi.fn() },
+      redisClient: { sadd: vi.fn(), smembers, srem },
       firebaseAdmin: null,
-      supabase: null,
+      supabase: {
+        from() {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            async maybeSingle() {
+              return { data: null, error: null };
+            },
+          };
+        },
+      },
     }));
 
     const { __testing: redisTesting } = await import('../../src/sockets/tracker.js');
-    const restoredWs = {
-      user: { id: 'driver-redis', role: 'driver' },
-      driverId: 'driver-redis',
+    const ws = {
+      user: { id: 'customer-1', role: 'customer' },
       send: vi.fn(),
     };
 
-    await redisTesting.restoreSubscriptions(restoredWs);
+    await redisTesting.restoreSubscriptions(ws);
 
-    expect(redisTesting.getTrackingSubscriptions().get('driver-1')?.has(restoredWs)).toBe(true);
+    expect(redisTesting.getTrackingSubscriptions().has('ORDER-1')).toBe(false);
+    expect(srem).toHaveBeenCalledWith('user:subscriptions:customer-1', 'ORDER-1');
   });
 });
 
