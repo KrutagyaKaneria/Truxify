@@ -516,6 +516,7 @@ export async function handleSubscribe(ws, data) {
       const subscriberId = ws.user?.id || ws.driverId;
       if (subscriberId) {
         await redisClient.sadd(`user:subscriptions:${subscriberId}`, targetId);
+        await redisClient.persist(`user:subscriptions:${subscriberId}`);
       }
     } catch (err) {
       console.error('Redis subscription persistence error:', err.message);
@@ -597,6 +598,31 @@ async function removeClientFromAllSubscriptions(ws) {
       trackingSubscriptions.delete(key);
     }
   });
+
+  if (redisClient) {
+    const subscriberId = ws.user?.id || ws.driverId;
+    if (subscriberId) {
+      let hasOtherSockets = false;
+      if (wsServer && wsServer.clients) {
+        for (const client of wsServer.clients) {
+          if (client !== ws && client.readyState === 1) {
+            const clientUserId = client.user?.id || client.driverId;
+            if (clientUserId === subscriberId) {
+              hasOtherSockets = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!hasOtherSockets) {
+        try {
+          await redisClient.expire(`user:subscriptions:${subscriberId}`, 3600);
+        } catch (err) {
+          console.error('Redis subscription expire error on disconnect:', err.message);
+        }
+      }
+    }
+  }
 }
 
 async function restoreSubscriptions(ws) {
@@ -607,6 +633,10 @@ async function restoreSubscriptions(ws) {
     const targets = await redisClient.smembers(`user:subscriptions:${subscriberId}`);
 
     ws.subscriptionTargets ??= new Set();
+
+    if (targets.length > 0) {
+      await redisClient.persist(`user:subscriptions:${subscriberId}`);
+    }
 
     for (const targetId of targets) {
       const allowed = await canSubscribe(
