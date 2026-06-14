@@ -1,6 +1,5 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:truxify/widgets/menu_card.dart';
 import 'package:truxify/widgets/menu_item.dart';
 
