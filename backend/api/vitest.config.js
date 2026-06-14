@@ -1,9 +1,21 @@
+/**
+ * Vitest configuration for the backend API.
+ *
+ * Picks up:
+ *   - test/unit/**\/*.test.js
+ *   - test/integration/**\/*.test.js
+ *
+ * The integration tests use `vi.mock('../../src/config/db.js', ...)` to
+ * swap supabase out for the in-memory mock — no live DB required.
+ */
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    // Preserve symlinks so that testing in workspace directories containing special characters
-    // (like '#') using a directory symlink or junction resolves imports correctly without breaking.
+    // Preserve symlinks so that testing under workspace directories containing special
+    // characters (like '#') can bypass Vite's URL-based resolution limitations by running
+    // from a safe directory junction or symlink.
     preserveSymlinks: true,
   },
   plugins: [
