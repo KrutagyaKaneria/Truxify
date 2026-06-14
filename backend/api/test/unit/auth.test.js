@@ -648,7 +648,8 @@ describe('authenticate middleware - Redis caching', () => {
       uid: 'cached-firebase-uid',
       role: 'customer',
       fullName: 'Cached User',
-      phone: '+1234567890'
+      phone: '+1234567890',
+      isActive: true
     };
 
     const redisClientMock = {
@@ -695,6 +696,132 @@ describe('authenticate middleware - Redis caching', () => {
     expect(supabaseMock.from).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
     expect(req.user).toEqual(cachedUser);
+  });
+
+  it('treats cached profiles with invalid shape as a cache miss and invalidates the cache key', async () => {
+    const invalidCachedUser = {
+      fullName: 'Corrupted User',
+    };
+
+    const redisClientMock = {
+      get: vi.fn().mockResolvedValue(JSON.stringify(invalidCachedUser)),
+      set: vi.fn(),
+      del: vi.fn().mockResolvedValue(1),
+    };
+
+    const firebaseAdminMock = {
+      auth: () => ({
+        verifyIdToken: vi.fn().mockResolvedValue({
+          uid: 'corrupted-firebase-uid',
+        }),
+      }),
+    };
+
+    const dbProfile = {
+      id: 'db-user-999',
+      firebase_uid: 'corrupted-firebase-uid',
+      role: 'customer',
+      full_name: 'Database User',
+      phone: '+9876543210'
+    };
+
+    const supabaseMock = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: dbProfile, error: null }),
+            }),
+          }),
+        }),
+      }),
+    };
+
+    vi.doMock('../../src/config/db.js', () => ({
+      firebaseAdmin: firebaseAdminMock,
+      supabase: supabaseMock,
+      redisClient: redisClientMock,
+    }));
+
+    const { authenticate } = await import('../../src/middleware/auth.js');
+
+    const req = {
+      headers: {
+        authorization: 'Bearer token123',
+      },
+    };
+
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    const next = vi.fn();
+
+    await authenticate(req, res, next);
+
+    expect(redisClientMock.del).toHaveBeenCalledWith('user:profile:corrupted-firebase-uid');
+    expect(next).toHaveBeenCalled();
+    expect(req.user.id).toBe('db-user-999');
+  });
+
+  it('caches tombstone with TOMBSTONE_TTL_SECONDS when profile query returns no results', async () => {
+    const redisClientMock = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+
+    const firebaseAdminMock = {
+      auth: () => ({
+        verifyIdToken: vi.fn().mockResolvedValue({
+          uid: 'nonexistent-firebase-uid',
+        }),
+      }),
+    };
+
+    const supabaseMock = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            }),
+          }),
+        }),
+      }),
+    };
+
+    vi.doMock('../../src/config/db.js', () => ({
+      firebaseAdmin: firebaseAdminMock,
+      supabase: supabaseMock,
+      redisClient: redisClientMock,
+    }));
+
+    const { TOMBSTONE_TTL_SECONDS } = await import('../../src/lib/profileCache.js');
+    const { authenticate } = await import('../../src/middleware/auth.js');
+
+    const req = {
+      headers: {
+        authorization: 'Bearer token123',
+      },
+    };
+
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+
+    const next = vi.fn();
+
+    await authenticate(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(redisClientMock.set).toHaveBeenCalledWith(
+      'user:profile:nonexistent-firebase-uid',
+      JSON.stringify({ isActive: false }),
+      'EX',
+      TOMBSTONE_TTL_SECONDS
+    );
   });
 
   it('queries database and populates Redis on cache miss', async () => {

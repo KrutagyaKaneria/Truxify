@@ -10,16 +10,17 @@
  */
 
 import { defineConfig } from 'vitest/config';
-import fs from 'fs';
+import fs from 'node:fs';
 
 export default defineConfig({
   resolve: {
     // Preserve symlinks so that testing under workspace directories containing special
     // characters (like '#') can bypass Vite's URL-based resolution limitations by running
     // from a safe directory junction or symlink.
-    preserveSymlinks: process.cwd().includes('#') || 
-                      fs.realpathSync(process.cwd()).includes('#') || 
-                      process.env.PRESERVE_SYMLINKS === 'true',
+    preserveSymlinks:
+      process.cwd().includes('#') ||
+      fs.realpathSync(process.cwd()).includes('#') ||
+      process.env.PRESERVE_SYMLINKS === 'true',
   },
   plugins: [
     {

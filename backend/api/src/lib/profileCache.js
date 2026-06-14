@@ -1,6 +1,7 @@
 import * as db from '../config/db.js';
 
 export const TTL_SECONDS = 900; // 15 minutes
+export const TOMBSTONE_TTL_SECONDS = 30; // 30 seconds
 const cacheKey = (firebaseUid) => `user:profile:${firebaseUid}`;
 
 /**
@@ -56,11 +57,11 @@ export async function getCachedProfile(firebaseUid) {
  * @param {object} profile - The user profile object to cache.
  * @returns {Promise<void>}
  */
-export async function setCachedProfile(firebaseUid, profile) {
+export async function setCachedProfile(firebaseUid, profile, ttlSeconds = TTL_SECONDS) {
   const redisClient = getRedisClient();
   if (!redisClient || !firebaseUid || !profile) return;
   try {
-    await redisClient.set(cacheKey(firebaseUid), JSON.stringify(profile), 'EX', TTL_SECONDS);
+    await redisClient.set(cacheKey(firebaseUid), JSON.stringify(profile), 'EX', ttlSeconds);
   } catch (err) {
     console.error('Redis setCachedProfile error:', err);
   }

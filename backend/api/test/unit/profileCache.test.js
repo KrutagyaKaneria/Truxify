@@ -93,7 +93,7 @@ describe('profileCache utility', () => {
       }));
 
       const { setCachedProfile } = await import('../../src/lib/profileCache.js');
-      await expect(setCachedProfile('firebase-123', { id: '123' })).resolves.not.toThrow();
+      await expect(setCachedProfile('firebase-123', { id: '123' })).resolves.toBeUndefined();
     });
 
     it('does not write if parameters are missing', async () => {
@@ -156,7 +156,7 @@ describe('profileCache utility', () => {
       }));
 
       const { invalidateCachedProfile } = await import('../../src/lib/profileCache.js');
-      await expect(invalidateCachedProfile('firebase-123')).resolves.not.toThrow();
+      await expect(invalidateCachedProfile('firebase-123')).resolves.toBeUndefined();
     });
 
     it('does not call if firebaseUid is missing', async () => {

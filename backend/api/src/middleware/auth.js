@@ -1,6 +1,6 @@
 import { firebaseAdmin, supabase } from '../config/db.js';
 import jwt from 'jsonwebtoken';
-import { getCachedProfile, setCachedProfile } from '../lib/profileCache.js';
+import { getCachedProfile, setCachedProfile, invalidateCachedProfile, TOMBSTONE_TTL_SECONDS } from '../lib/profileCache.js';
 
 /**
  * Authentication middleware to verify requests using Firebase ID Tokens.
@@ -108,14 +108,24 @@ export async function authenticate(req, res, next) {
       // must explicitly call invalidateCachedProfile(firebaseUid).
       const cachedProfile = await getCachedProfile(firebaseUid);
       if (cachedProfile) {
-        if (cachedProfile.isActive === false) {
-          return res.status(403).json({ 
-            error: 'User profile not found in database.', 
-            hint: 'Register user in profiles table first.' 
-          });
+        const isValidShape = typeof cachedProfile === 'object' &&
+          (cachedProfile.isActive === false ||
+           (typeof cachedProfile.id === 'string' &&
+            typeof cachedProfile.uid === 'string' &&
+            typeof cachedProfile.role === 'string'));
+
+        if (!isValidShape) {
+          void invalidateCachedProfile(firebaseUid);
+        } else {
+          if (cachedProfile.isActive === false) {
+            return res.status(403).json({ 
+              error: 'User profile not found in database.', 
+              hint: 'Register user in profiles table first.' 
+            });
+          }
+          req.user = cachedProfile;
+          return next();
         }
-        req.user = cachedProfile;
-        return next();
       }
 
       if (!supabase) {
@@ -139,7 +149,7 @@ export async function authenticate(req, res, next) {
     if (!userProfile) {
       if (firebaseUid) {
         // Cache the inactive/not-found status as a tombstone to prevent DB load on subsequent requests
-        void setCachedProfile(firebaseUid, { isActive: false });
+        void setCachedProfile(firebaseUid, { isActive: false }, TOMBSTONE_TTL_SECONDS);
       }
       return res.status(403).json({ 
         error: 'User profile not found in database.', 
