@@ -4,15 +4,16 @@ const TTL_SECONDS = 900; // 15 minutes
 const cacheKey = (firebaseUid) => `user:profile:${firebaseUid}`;
 
 /**
- * Safely retrieve the redisClient from the database configuration.
- * Under standard Node.js ESM namespace imports, accessing a missing export returns undefined.
- * However, in Vitest unit tests that mock db.js without explicitly exporting 'redisClient',
- * Vitest's mock Proxy intercepts the property access and throws an error.
- * The try-catch block guards against this, allowing a graceful fallback to null.
+ * Retrieves the redisClient from the database configuration.
+ * Under Vitest, accessing a property on a mocked namespace module that is not explicitly
+ * returned in the mock factory will throw an error via the mock Proxy. We wrap the access
+ * in a try-catch to allow a graceful fallback to null.
+ * 
+ * @returns {object|null} The Redis client if configured, or null.
  */
 function getRedisClient() {
   try {
-    return db.redisClient;
+    return db.redisClient ?? null;
   } catch (err) {
     return null;
   }

@@ -99,7 +99,12 @@ export async function authenticate(req, res, next) {
       const decodedToken = await firebaseAdmin.auth().verifyIdToken(token);
       const firebaseUid = decodedToken.uid;
 
-      // Check Redis cache first
+      // Check Redis cache first.
+      // NOTE: On cache hit, we attach the cached profile directly and skip the DB query entirely
+      // to reduce database load (per the Acceptance Criteria).
+      // Since all profile mutations in this API (e.g., PUT /api/profile) invalidate the cache,
+      // the cache remains consistent. Any future administrative role or status mutations
+      // must explicitly call invalidateCachedProfile(firebaseUid).
       const cachedProfile = await getCachedProfile(firebaseUid);
       if (cachedProfile) {
         req.user = cachedProfile;
