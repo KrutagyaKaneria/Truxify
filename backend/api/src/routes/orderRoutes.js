@@ -402,10 +402,11 @@ router.post('/:id/ratings', authenticate, requireRole(['customer']), validatePar
     const polygonAddress = driverDetails?.polygon_wallet_address ?? null;
 
     if (polygonAddress) {
-      // Non-blocking — do not await on the critical response path.
-      awardReputationPoints(polygonAddress, stars).catch(err =>
-        console.error('[reputation] Unhandled rejection in awardReputationPoints:', err.message)
-      );
+      try {
+        await awardReputationPoints(polygonAddress, stars);
+      } catch (repErr) {
+        console.error('[reputation] On-chain reputation update failed:', repErr.message);
+      }
     } else {
       console.warn(
         `[reputation] Driver ${order.driver_id} has no polygon_wallet_address — skipping on-chain update.`
@@ -519,6 +520,19 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
 
     if (rpcErr) return res.status(500).json({ error: 'Failed to accept bid atomically.', details: rpcErr.message });
 
+    // Record escrow booking reference immediately
+    const { error: escrowBookingErr } = await supabase
+      .from('orders')
+      .update({
+        escrow_booking_id: `escrow:${order.order_display_id}`,
+        escrow_status: 'funding',
+      })
+      .eq('id', orderId);
+
+    if (escrowBookingErr) {
+      console.warn('[escrow] Failed to update escrow_booking_id:', escrowBookingErr.message);
+    }
+
     // Fetch driver's and customer's Polygon wallet addresses for escrow deposit
     const [driverDetailsResult, customerProfileResult] = await Promise.all([
       supabase.from('driver_details').select('polygon_wallet_address').eq('user_id', bid.driver_id).maybeSingle(),
@@ -527,38 +541,26 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
 
     const driverWallet = driverDetailsResult.data?.polygon_wallet_address ?? null;
     const customerWallet = customerProfileResult.data?.polygon_wallet_address ?? null;
+
     if (driverWallet && customerWallet) {
       const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
-      escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei).then(({ txHash }) => {
+      try {
+        const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
         if (txHash) {
-          supabase.from('orders').update({
+          await supabase.from('orders').update({
             escrow_status: 'funded',
             deposit_tx_hash: txHash,
             escrow_deposited_at: new Date().toISOString(),
-          }).eq('id', orderId).then(({ error: e }) => {
-            if (e) console.warn('[escrow] Failed to update deposit_tx_hash:', e.message);
-          });
+          }).eq('id', orderId);
         }
-      }).catch(err =>
-        console.error('[escrow] Unhandled rejection in escrowDeposit:', err.message)
-      );
+      } catch (depositErr) {
+        console.error('[escrow] Deposit failed for order', orderId, ':', depositErr.message);
+        await supabase.from('orders').update({
+          escrow_status: 'fund_failed',
+        }).eq('id', orderId);
+      }
     } else {
-      console.warn(
-        `[escrow] Missing wallet address: driver=${!!driverWallet}, customer=${!!customerWallet} — skipping escrow deposit.`
-      );
-    }
-
-    // Update order with escrow booking reference
-    const { error: escrowUpdateErr } = await supabase
-      .from('orders')
-      .update({
-        escrow_booking_id: `escrow:${order.order_display_id}`,
-        escrow_status: 'funding',
-      })
-      .eq('id', orderId);
-
-    if (escrowUpdateErr) {
-      console.warn('[escrow] Failed to update escrow_booking_id:', escrowUpdateErr.message);
+      console.warn(`[escrow] Missing wallet address: driver=${!!driverWallet}, customer=${!!customerWallet} — skipping escrow deposit.`);
     }
 
     res.json({ message: 'Bid accepted. Driver and truck assigned.' });
@@ -667,11 +669,11 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
     // Successful verification — clear failure state
     await clearOtpState(orderId);
 
-    const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update({
-      otp_verified: true, status: 'payment_released', updated_at: new Date().toISOString()
+    const { data: preUpdatedOrder, error: updateErr } = await supabase.from('orders').update({
+      otp_verified: true, updated_at: new Date().toISOString()
     })
       .eq('id', orderId)
-      .eq('otp_verified', false)
+      .not('otp_verified', 'eq', true)
       .not('status', 'eq', 'cancelled')
       .not('status', 'eq', 'payment_released')
       .select('*')
@@ -684,30 +686,41 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
       return res.status(500).json({ error: 'Failed to verify OTP.', details: updateErr.message });
     }
 
-    await supabase.from('order_timeline').update({ completed: true, milestone_time: new Date().toISOString() }).eq('order_display_id', order.order_display_id).eq('milestone', 'Delivered');
+    // Call complete_trip_tx RPC to atomically update trip, driver stats, wallet, earnings, order status, and timeline.
+    const { error: rpcErr } = await supabase.rpc('complete_trip_tx', { p_order_id: orderId });
+    if (rpcErr) {
+      console.error('complete_trip_tx RPC failed:', rpcErr.message);
+      return res.status(500).json({ error: 'Failed to complete trip and release payment.', details: rpcErr.message });
+    }
 
-    try {
-      const { error: rpcErr } = await supabase.rpc('complete_trip_tx', { p_order_id: orderId });
-      if (rpcErr) console.warn('complete_trip_tx RPC not available or failed:', rpcErr.message);
-    } catch (rpcErr) {
-      console.warn('complete_trip_tx RPC call error:', rpcErr.message);
+    // Fetch the updated order directly from the database as the single source of truth
+    const { data: updatedOrder, error: fetchErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (fetchErr) {
+      console.error('Failed to fetch updated order:', fetchErr.message);
+      return res.status(500).json({ error: 'Failed to retrieve completed order details.', details: fetchErr.message });
     }
 
     // Escrow: release funds to driver after successful delivery verification
     if (updatedOrder.escrow_status === 'funded') {
-      escrowRelease(order.order_display_id).then(({ txHash }) => {
+      try {
+        const { txHash } = await escrowRelease(order.order_display_id);
         if (txHash) {
-          supabase.from('orders').update({
+          await supabase.from('orders').update({
             escrow_status: 'released',
             release_tx_hash: txHash,
             escrow_released_at: new Date().toISOString(),
-          }).eq('id', orderId).then(({ error: e }) => {
-            if (e) console.warn('[escrow] Failed to update release_tx_hash:', e.message);
-          });
+          }).eq('id', orderId);
         }
-      }).catch(err => console.error('[escrow] Unhandled rejection in escrowRelease:', err.message));
+      } catch (releaseErr) {
+        console.error('[escrow] Release failed for order', orderId, ':', releaseErr.message);
+      }
     } else {
-      console.log(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain release.`);
+      console.log(`[escrow] Escrow not funded (status: ${updatedOrder.escrow_status}) — skipping on-chain release.`);
     }
 
     // Strip delivery_otp from updatedOrder to prevent exposure
@@ -812,6 +825,7 @@ router.post('/:id/cancel', authenticate, requireRole(['customer']), validatePara
     const { data: updatedOrder, error: updateErr } = await supabase.from('orders')
       .update({ status: 'cancelled', cancellation_reason: reason, updated_at: new Date().toISOString() })
       .eq('order_display_id', orderId)
+      .not('otp_verified', 'eq', true)
       .not('status', 'in', '("delivered","payment_released","cancelled")')
       .select('cancellation_fee, order_display_id, status, cancellation_reason, escrow_status')
       .single();
@@ -829,19 +843,20 @@ router.post('/:id/cancel', authenticate, requireRole(['customer']), validatePara
       .eq('milestone', 'Order Placed');
 
     if (updatedOrder.escrow_status === 'funded') {
-      escrowRefund(order.order_display_id).then(({ txHash }) => {
+      try {
+        const { txHash } = await escrowRefund(order.order_display_id);
         if (txHash) {
-          supabase.from('orders').update({
+          await supabase.from('orders').update({
             escrow_status: 'refunded',
             refund_tx_hash: txHash,
             escrow_refunded_at: new Date().toISOString(),
-          }).eq('order_display_id', orderId).then(({ error: e }) => {
-            if (e) console.warn('[escrow] Failed to update refund_tx_hash:', e.message);
-          });
+          }).eq('order_display_id', orderId);
         }
-      }).catch(err => console.error('[escrow] Unhandled rejection in escrowRefund:', err.message));
+      } catch (refundErr) {
+        console.error('[escrow] Refund failed for order', orderId, ':', refundErr.message);
+      }
     } else if (order.escrow_booking_id) {
-      console.log(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);
+      console.log(`[escrow] Escrow not funded (status: ${updatedOrder.escrow_status}) — skipping on-chain refund.`);
     }
 
     return res.json({ message: 'Order cancelled successfully.', cancellation_fee: cancellationFee, order: updatedOrder });

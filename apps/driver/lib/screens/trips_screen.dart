@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../services/marketplace_repository.dart';
 import '../services/trip_service.dart';
+import 'package:truxify_shared/shimmer_widget.dart';
 
 class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
@@ -716,7 +717,13 @@ class _TripsScreenState extends State<TripsScreen> {
                   color: TruxifyColors.accent,
                   onRefresh: _loadTrips,
                   child: _isLoadingTrips
-                      ? const Center(child: CircularProgressIndicator())
+                      ? ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: 3,
+                          itemBuilder: (context, index) =>
+                              const ShimmerListItem(height: 180),
+                        )
                       : _tripsError != null
                           ? ListView(
                               physics: const AlwaysScrollableScrollPhysics(),
@@ -1142,12 +1149,11 @@ class _MarketplaceBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading && standardLoads.isEmpty && enRouteLoads.isEmpty) {
-      return ListView(
+      return ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 120),
-          Center(child: CircularProgressIndicator()),
-        ],
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: 3,
+        itemBuilder: (context, index) => const ShimmerLoadCard(),
       );
     }
 

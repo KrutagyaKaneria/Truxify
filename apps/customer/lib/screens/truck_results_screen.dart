@@ -4,6 +4,7 @@ import 'package:truxify/theme/app_theme.dart';
 import '../models/app_models.dart';
 import '../services/order_service.dart';
 import '../widgets/truck_card.dart';
+import 'package:truxify_shared/shimmer_widget.dart';
 
 class TruckResultsScreen extends StatefulWidget {
   const TruckResultsScreen({super.key, required this.draft});
@@ -95,19 +96,19 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
     final trucks = List<TruckResultData>.from(_trucks ?? []);
 
     switch (_selectedSort) {
-      case 0: // Best Match
+      case 0:
         trucks.sort(
           (a, b) => (b.badge == 'Best Match' ? 1 : 0)
               .compareTo(a.badge == 'Best Match' ? 1 : 0),
         );
         break;
-      case 1: // Cheapest
+      case 1:
         trucks.sort((a, b) => _price(a.price).compareTo(_price(b.price)));
         break;
-      case 2: // Fastest
+      case 2:
         trucks.sort((a, b) => _eta(a.eta).compareTo(_eta(b.eta)));
         break;
-      case 3: // Top Rated
+      case 3:
         trucks.sort((a, b) => b.rating.compareTo(a.rating));
         break;
       default:
@@ -128,7 +129,11 @@ class _TruckResultsScreenState extends State<TruckResultsScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
           ),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          itemCount: 5,
+          itemBuilder: (_, __) => const ShimmerListItem(height: 140),
+        ),
       );
     }
 
