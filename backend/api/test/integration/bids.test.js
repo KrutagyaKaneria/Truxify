@@ -368,7 +368,7 @@ describe('Bid Routes', () => {
     expect(order.deposit_tx_hash).toBe('0xescrowtest123');
   });
 
-  it('POST /:id/bids/:bidId/accept sets escrow_status to fund_failed when escrow deposit fails', async () => {
+  it('POST /:id/bids/:bidId/accept returns error when escrow deposit fails before accepting bid', async () => {
     mockEscrowDeposit.mockRejectedValue(new Error('Out of gas'));
 
     m.store.orders.push({
@@ -411,10 +411,11 @@ describe('Bid Routes', () => {
       .post('/api/orders/order-escrow-fail/bids/bid-escrow-fail/accept')
       .set(CUSTOMER);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    expect(res.body).toMatchObject({ error: 'Escrow deposit failed. Bid was not accepted.' });
 
     let order = m.store.orders.find(o => o.id === 'order-escrow-fail');
-    expect(order.escrow_status).toBe('fund_failed');
+    expect(order.escrow_status).toBeUndefined();
   });
 
   it('POST /:id/bids/:bidId/accept skips escrow when customer wallet missing', async () => {
