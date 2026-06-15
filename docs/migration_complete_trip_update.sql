@@ -1,4 +1,9 @@
 -- Migration: Update complete_trip_tx(p_order_id UUID) to atomically complete the driver's active trip, its items/stops, and the order/timeline.
+-- Also add partial unique index on trips table to ensure a driver can have at most one active trip at any given time.
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_one_active_per_driver 
+ON trips (driver_id) 
+WHERE (status = 'active');
 
 CREATE OR REPLACE FUNCTION complete_trip_tx(p_order_id UUID)
 RETURNS void
@@ -8,6 +13,7 @@ AS $$
 DECLARE
   v_order RECORD;
   v_trip_display_id TEXT;
+  v_active_trip_count INT;
 BEGIN
   -- Get the order details
   SELECT * INTO v_order FROM orders WHERE id = p_order_id;
@@ -20,13 +26,25 @@ BEGIN
     RAISE EXCEPTION 'No driver assigned to this order';
   END IF;
 
-  -- Resolve the associated active trip for this driver
-  SELECT trip_display_id INTO v_trip_display_id
+  -- Idempotency guard: check if the order status is already payment_released
+  IF v_order.status = 'payment_released' THEN
+    RETURN;
+  END IF;
+
+  -- Safe lookup for the driver's active trip
+  SELECT COUNT(*) INTO v_active_trip_count
   FROM trips
   WHERE driver_id = v_order.driver_id AND status = 'active';
 
-  -- If an active trip exists, complete it operationally
-  IF v_trip_display_id IS NOT NULL THEN
+  IF v_active_trip_count > 1 THEN
+    RAISE EXCEPTION 'Multiple active trips found for driver %', v_order.driver_id;
+  END IF;
+
+  IF v_active_trip_count = 1 THEN
+    SELECT trip_display_id INTO v_trip_display_id
+    FROM trips
+    WHERE driver_id = v_order.driver_id AND status = 'active';
+
     -- Update trip record
     UPDATE trips
     SET status = 'completed',

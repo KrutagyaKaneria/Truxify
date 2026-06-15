@@ -460,6 +460,7 @@ create index if not exists idx_trips_driver     on trips (driver_id);
 create index if not exists idx_trips_status     on trips (status);
 create index if not exists idx_trips_date       on trips (trip_date);
 create index if not exists idx_trips_display_id on trips (trip_display_id);
+create unique index if not exists idx_trips_one_active_per_driver on trips (driver_id) where (status = 'active');
 
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -1343,6 +1344,7 @@ as $$
 declare
   v_order record;
   v_trip_display_id text;
+  v_active_trip_count int;
 begin
   select * into v_order from orders where id = p_order_id;
 
@@ -1354,13 +1356,25 @@ begin
     raise exception 'No driver assigned to this order';
   end if;
 
-  -- Resolve the associated active trip for this driver
-  select trip_display_id into v_trip_display_id
+  -- Idempotency guard: check if the order status is already payment_released
+  if v_order.status = 'payment_released' then
+    return;
+  end if;
+
+  -- Safe lookup for the driver's active trip
+  select count(*) into v_active_trip_count
   from trips
   where driver_id = v_order.driver_id and status = 'active';
 
-  -- If an active trip exists, complete it operationally
-  if v_trip_display_id is not null then
+  if v_active_trip_count > 1 then
+    raise exception 'Multiple active trips found for driver %', v_order.driver_id;
+  end if;
+
+  if v_active_trip_count = 1 then
+    select trip_display_id into v_trip_display_id
+    from trips
+    where driver_id = v_order.driver_id and status = 'active';
+
     -- Update trip record
     update trips
     set status = 'completed',

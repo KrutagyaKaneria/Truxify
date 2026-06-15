@@ -636,13 +636,17 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
       return res.status(500).json({ error: 'Failed to complete trip and release payment.', details: rpcErr.message });
     }
 
-    const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update({
-      otp_verified: true, status: 'payment_released', updated_at: new Date().toISOString()
-    }).eq('id', orderId).select('*').single();
+    // Fetch the updated order directly from the database as the single source of truth
+    const { data: updatedOrder, error: fetchErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
 
-    if (updateErr) return res.status(500).json({ error: 'Failed to update order status.', details: updateErr.message });
-
-    await supabase.from('order_timeline').update({ completed: true, milestone_time: new Date().toISOString() }).eq('order_display_id', order.order_display_id).eq('milestone', 'Delivered');
+    if (fetchErr) {
+      console.error('Failed to fetch updated order:', fetchErr.message);
+      return res.status(500).json({ error: 'Failed to retrieve completed order details.', details: fetchErr.message });
+    }
 
     // Escrow: release funds to driver after successful delivery verification
     if (order.escrow_status === 'funded') {
