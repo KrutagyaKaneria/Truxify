@@ -73,6 +73,7 @@ create table if not exists profiles (
   language      text not null default 'en',
   dark_mode     boolean not null default false,
   is_active     boolean not null default true,
+  polygon_wallet_address text,                                  -- Polygon wallet address for escrow deposits
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
@@ -525,6 +526,7 @@ create index if not exists idx_trips_driver     on trips (driver_id);
 create index if not exists idx_trips_status     on trips (status);
 create index if not exists idx_trips_date       on trips (trip_date);
 create index if not exists idx_trips_display_id on trips (trip_display_id);
+create unique index if not exists idx_trips_one_active_per_driver on trips (driver_id) where (status = 'active');
 
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -1378,70 +1380,19 @@ begin
       v_confirmed, p_amount;
   end if;
 
+  -- Move funds from confirmed → pending
+  update driver_details
+    set wallet_confirmed = v_confirmed - p_amount,
+        wallet_pending   = v_pending   + p_amount,
+        updated_at       = now()
+    where user_id = p_driver_id;
 
-
--- ────────────────────────────────────────────────────────────────────────────
--- 27. COMPLETE TRIP RPC (SECURITY DEFINER)
--- ────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION complete_trip_tx(p_order_id UUID)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_order RECORD;
-BEGIN
-  SELECT * INTO v_order FROM orders WHERE id = p_order_id;
-  
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Order not found';
-  END IF;
-  
-  IF v_order.driver_id IS NULL THEN
-    RAISE EXCEPTION 'No driver assigned to this order';
-  END IF;
-
-  UPDATE driver_details
-  SET 
-    total_trips = total_trips + 1,
-    wallet_confirmed = wallet_confirmed + v_order.total_amount,
-    wallet_total = wallet_total + v_order.total_amount,
-    updated_at = NOW()
-  WHERE user_id = v_order.driver_id;
-  
-  INSERT INTO wallet_transactions (
-    driver_id, order_display_id, amount, txn_type, status, description
-  ) VALUES (
-    v_order.driver_id,
-    v_order.order_display_id,
-    v_order.total_amount,
-    'credit',
-    'confirmed',
-    'Payout for Order ' || v_order.order_display_id
-  );
-  
-  INSERT INTO earnings_daily (driver_id, day_date, amount, trip_count)
-  VALUES (v_order.driver_id, CURRENT_DATE, v_order.total_amount, 1)
-  ON CONFLICT (driver_id, day_date)
-  DO UPDATE SET 
-    amount = earnings_daily.amount + EXCLUDED.amount,
-    trip_count = earnings_daily.trip_count + 1;
-END;
-$$;
-
--- Move funds from confirmed → pending
-update driver_details
-  set wallet_confirmed = v_confirmed - p_amount,
-      wallet_pending   = v_pending   + p_amount,
-      updated_at       = now()
-  where user_id = p_driver_id;
-
--- Log the withdrawal transaction
-insert into wallet_transactions
-  (driver_id, amount, txn_type, status, description)
-values
-  (p_driver_id, p_amount, 'withdrawal', 'pending',
-   'Withdrawal to registered bank account');
+  -- Log the withdrawal transaction
+  insert into wallet_transactions
+    (driver_id, amount, txn_type, status, description)
+  values
+    (p_driver_id, p_amount, 'withdrawal', 'pending',
+     'Withdrawal to registered bank account');
 end;
 $$;
 
@@ -1504,6 +1455,8 @@ security definer
 as $$
 declare
   v_order record;
+  v_trip_display_id text;
+  v_active_trip_count int;
 begin
   select * into v_order from orders where id = p_order_id;
 
@@ -1515,6 +1468,60 @@ begin
     raise exception 'No driver assigned to this order';
   end if;
 
+  -- Idempotency guard: check if the order status is already payment_released
+  if v_order.status = 'payment_released' then
+    return;
+  end if;
+
+  -- Safe lookup for the driver's active trip
+  select count(*) into v_active_trip_count
+  from trips
+  where driver_id = v_order.driver_id and status = 'active';
+
+  if v_active_trip_count > 1 then
+    raise exception 'Multiple active trips found for driver %', v_order.driver_id;
+  end if;
+
+  if v_active_trip_count = 1 then
+    select trip_display_id into v_trip_display_id
+    from trips
+    where driver_id = v_order.driver_id and status = 'active';
+
+    -- Update trip record
+    update trips
+    set status = 'completed',
+        end_time = to_char(now(), 'HH24:MI'),
+        updated_at = now()
+    where trip_display_id = v_trip_display_id;
+
+    -- Update trip items to delivered
+    update trip_items
+    set is_delivered = true
+    where trip_display_id = v_trip_display_id;
+
+    -- Update trip stops to completed/delivered
+    update trip_stops
+    set is_completed = true,
+        is_current = false,
+        status_label = 'Delivered',
+        updated_at = now()
+    where trip_display_id = v_trip_display_id;
+  end if;
+
+  -- Update order status to payment_released
+  update orders
+  set otp_verified = true,
+      status = 'payment_released',
+      updated_at = now()
+  where id = p_order_id;
+
+  -- Update order timeline milestone 'Delivered'
+  update order_timeline
+  set completed = true,
+      milestone_time = now()
+  where order_display_id = v_order.order_display_id and milestone = 'Delivered';
+
+  -- Update driver's wallet
   update driver_details
   set
     total_trips = total_trips + 1,
@@ -1523,6 +1530,7 @@ begin
     updated_at = now()
   where user_id = v_order.driver_id;
 
+  -- Log wallet transaction
   insert into wallet_transactions (
     driver_id, order_display_id, amount, txn_type, status, description
   ) values (
@@ -1534,6 +1542,7 @@ begin
     'Payout for Order ' || v_order.order_display_id
   );
 
+  -- Update daily earnings summary
   insert into earnings_daily (driver_id, day_date, amount, trip_count)
   values (v_order.driver_id, current_date, v_order.total_amount, 1)
   on conflict (driver_id, day_date)
@@ -1586,12 +1595,14 @@ $$;
 -- Passwords / auth tokens are managed by Firebase Auth, not Supabase.
 
 -- Seed Profiles (1 customer + 1 driver)
-insert into profiles (id, firebase_uid, role, full_name, phone, email, company_name, language)
+insert into profiles (id, firebase_uid, role, full_name, phone, email, company_name, language, polygon_wallet_address)
 values
   ('a1111111-1111-1111-1111-111111111111', 'firebase_customer_001', 'customer',
-   'Rajesh Kumar', '+919876543210', 'rajesh@truxify.dev', 'Kumar Logistics', 'en'),
+   'Rajesh Kumar', '+919876543210', 'rajesh@truxify.dev', 'Kumar Logistics', 'en',
+   '0x1234567890abcdef1234567890abcdef12345678'),
   ('b2222222-2222-2222-2222-222222222222', 'firebase_driver_001', 'driver',
-   'Suresh Yadav', '+919988776655', 'suresh@truxify.dev', null, 'hi')
+   'Suresh Yadav', '+919988776655', 'suresh@truxify.dev', null, 'hi',
+   null)
 on conflict (firebase_uid) do nothing;
 
 -- Seed Customer Stats
@@ -1612,11 +1623,12 @@ on conflict do nothing;
 
 -- Seed Driver Details
 insert into driver_details (user_id, truck_id, rating, total_trips, completion_rate,
-  is_online, wallet_confirmed, wallet_pending, wallet_total)
+  is_online, wallet_confirmed, wallet_pending, wallet_total, polygon_wallet_address)
 values
   ('b2222222-2222-2222-2222-222222222222',
    'c3333333-3333-3333-3333-333333333333',
-   4.72, 148, 96.50, true, 4500000, 750000, 5250000)
+   4.72, 148, 96.50, true, 4500000, 750000, 5250000,
+   '0xAbcdef1234567890Abcdef1234567890Abcdef12')
 on conflict (user_id) do nothing;
 
 -- Seed Tyre Diagnostics

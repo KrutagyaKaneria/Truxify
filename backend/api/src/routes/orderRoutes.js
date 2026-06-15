@@ -519,17 +519,17 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
 
     if (rpcErr) return res.status(500).json({ error: 'Failed to accept bid atomically.', details: rpcErr.message });
 
-    // Fetch driver's Polygon wallet address for escrow deposit
-    const { data: driverDetails } = await supabase
-      .from('driver_details')
-      .select('polygon_wallet_address')
-      .eq('user_id', bid.driver_id)
-      .maybeSingle();
+    // Fetch driver's and customer's Polygon wallet addresses for escrow deposit
+    const [driverDetailsResult, customerProfileResult] = await Promise.all([
+      supabase.from('driver_details').select('polygon_wallet_address').eq('user_id', bid.driver_id).maybeSingle(),
+      supabase.from('profiles').select('polygon_wallet_address').eq('id', req.user.id).maybeSingle(),
+    ]);
 
-    const driverWallet = driverDetails?.polygon_wallet_address ?? null;
-    if (driverWallet) {
+    const driverWallet = driverDetailsResult.data?.polygon_wallet_address ?? null;
+    const customerWallet = customerProfileResult.data?.polygon_wallet_address ?? null;
+    if (driverWallet && customerWallet) {
       const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
-      escrowDeposit(order.order_display_id, driverWallet, amountWei).then(({ txHash }) => {
+      escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei).then(({ txHash }) => {
         if (txHash) {
           supabase.from('orders').update({
             escrow_status: 'funded',
@@ -543,7 +543,9 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
         console.error('[escrow] Unhandled rejection in escrowDeposit:', err.message)
       );
     } else {
-      console.warn(`[escrow] Driver ${bid.driver_id} has no polygon_wallet_address — skipping escrow deposit.`);
+      console.warn(
+        `[escrow] Missing wallet address: driver=${!!driverWallet}, customer=${!!customerWallet} — skipping escrow deposit.`
+      );
     }
 
     // Update order with escrow booking reference
@@ -665,19 +667,23 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
     // Successful verification — clear failure state
     await clearOtpState(orderId);
 
-    const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update({
-      otp_verified: true, status: 'payment_released', updated_at: new Date().toISOString()
-    }).eq('id', orderId).select('*').single();
+    // Call complete_trip_tx RPC first to atomically update trip, driver stats, wallet, earnings, order status, and timeline.
+    const { error: rpcErr } = await supabase.rpc('complete_trip_tx', { p_order_id: orderId });
+    if (rpcErr) {
+      console.error('complete_trip_tx RPC failed:', rpcErr.message);
+      return res.status(500).json({ error: 'Failed to complete trip and release payment.', details: rpcErr.message });
+    }
 
-    if (updateErr) return res.status(500).json({ error: 'Failed to verify OTP.', details: updateErr.message });
+    // Fetch the updated order directly from the database as the single source of truth
+    const { data: updatedOrder, error: fetchErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
 
-    await supabase.from('order_timeline').update({ completed: true, milestone_time: new Date().toISOString() }).eq('order_display_id', order.order_display_id).eq('milestone', 'Delivered');
-
-    try {
-      const { error: rpcErr } = await supabase.rpc('complete_trip_tx', { p_order_id: orderId });
-      if (rpcErr) console.warn('complete_trip_tx RPC not available or failed:', rpcErr.message);
-    } catch (rpcErr) {
-      console.warn('complete_trip_tx RPC call error:', rpcErr.message);
+    if (fetchErr) {
+      console.error('Failed to fetch updated order:', fetchErr.message);
+      return res.status(500).json({ error: 'Failed to retrieve completed order details.', details: fetchErr.message });
     }
 
     // Escrow: release funds to driver after successful delivery verification
