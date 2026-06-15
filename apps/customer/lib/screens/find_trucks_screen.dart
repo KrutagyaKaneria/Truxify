@@ -9,6 +9,7 @@ import '../widgets/app_page_route.dart';
 import '../widgets/common_widgets.dart';
 import 'location_picker_screen.dart';
 import 'truck_results_screen.dart';
+import 'package:truxify_shared/shimmer_widget.dart';
 
 class FindTrucksScreen extends StatefulWidget {
   const FindTrucksScreen({super.key});
@@ -18,7 +19,6 @@ class FindTrucksScreen extends StatefulWidget {
 }
 
 class _FindTrucksScreenState extends State<FindTrucksScreen> {
-  // Form key for validation
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _pickupController;
@@ -43,6 +43,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
   LatLng? _dropPoint;
 
   String? _weightErrorText;
+  bool _isLoading = false;
 
   static const _goodsTypes = <String>[
     'Textile',
@@ -151,8 +152,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
 
   String _formatTimeLabel(TimeOfDay time) {
     final now = DateTime.now();
-    final dateTime =
-        DateTime(now.year, now.month, now.day, time.hour, time.minute);
+    final dateTime = DateTime(now.year, now.month, now.day, time.hour, time.minute);
     return DateFormat('h:mm a').format(dateTime);
   }
 
@@ -256,8 +256,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
       dateLabel: _composeDateTimeLabel(),
       goodsType: _goodsType,
       weightTonnes: _weightController.text,
-      dimensions:
-          '${_lengthController.text} × ${_widthController.text} × ${_heightController.text}',
+      dimensions: '${_lengthController.text} × ${_widthController.text} × ${_heightController.text}',
       stacked: _stacked,
       fragile: _fragile,
       requirements: _requirements.toList(),
@@ -283,8 +282,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
       AppPageRoute(
         builder: (_) => LocationPickerScreen(
           title: isPickup ? 'Set Pickup Location' : 'Set Drop Location',
-          initialQuery:
-              isPickup ? _pickupController.text : _dropController.text,
+          initialQuery: isPickup ? _pickupController.text : _dropController.text,
           initialPoint: isPickup ? _pickupPoint : _dropPoint,
         ),
       ),
@@ -307,7 +305,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
     _formKey.currentState?.validate();
   }
 
-  // Validates the pickup location field.
   String? _validatePickup(String? value) {
     final text = value?.trim() ?? '';
     if (text.isEmpty) {
@@ -319,7 +316,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
     return null;
   }
 
-  // Validates the drop location field.
   String? _validateDrop(String? value) {
     final text = value?.trim() ?? '';
     if (text.isEmpty) {
@@ -331,7 +327,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
     return null;
   }
 
-  // Validates the pickup date field.
   String? _validateDate(String? value) {
     if (_selectedDate == null || (value?.trim().isEmpty ?? true)) {
       return 'Please select a future pickup date.';
@@ -370,6 +365,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
   }
 
   void _onFindTrucks() {
+    if (_isLoading) return;
+    
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
@@ -388,9 +385,19 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
       return;
     }
 
+    setState(() {
+      _isLoading = true;
+    });
+
     Navigator.of(context).push(
       AppPageRoute(builder: (_) => TruckResultsScreen(draft: _buildDraft())),
-    );
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    });
   }
 
   @override
@@ -403,7 +410,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with Filter
               Row(
                 children: [
                   Column(
@@ -420,8 +426,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       Text(
                         'ML powered matching',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color:
-                                TruxifyColors.adaptiveSecondaryText(context)),
+                            color: TruxifyColors.adaptiveSecondaryText(context)),
                       ),
                     ],
                   ),
@@ -443,7 +448,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               ),
               const SizedBox(height: 24),
 
-              // ROUTE Section
               Text(
                 'ROUTE',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -456,7 +460,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               InfoCard(
                 child: Column(
                   children: [
-                    // Pickup Location
                     TextFormField(
                       controller: _pickupController,
                       readOnly: true,
@@ -466,8 +469,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                         labelText: 'Pickup Location',
                         prefixIcon: const Icon(Icons.location_on_rounded,
                             color: TruxifyColors.accentDark),
-                        prefixIconConstraints:
-                            const BoxConstraints(minWidth: 40, minHeight: 40),
+                        prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                         suffixIcon: IconButton(
                           onPressed: () => _openLocationPicker(isPickup: true),
                           icon: const Icon(Icons.map_rounded,
@@ -476,7 +478,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    // Drop Location + Swap
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -490,11 +491,9 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                               labelText: 'Drop Location',
                               prefixIcon: const Icon(Icons.location_on_rounded,
                                   color: Color(0xFFD32F2F)),
-                              prefixIconConstraints: const BoxConstraints(
-                                  minWidth: 40, minHeight: 40),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                               suffixIcon: IconButton(
-                                onPressed: () =>
-                                    _openLocationPicker(isPickup: false),
+                                onPressed: () => _openLocationPicker(isPickup: false),
                                 icon: const Icon(Icons.map_rounded,
                                     color: TruxifyColors.accentDark),
                               ),
@@ -502,7 +501,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        // Align swap button to top so it doesn't shift when error text appears
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Container(
@@ -523,7 +521,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // Date and Time
                     Row(
                       children: [
                         Expanded(
@@ -534,11 +531,9 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             validator: _validateDate,
                             decoration: InputDecoration(
                               labelText: 'Date',
-                              prefixIcon: const Icon(
-                                  Icons.calendar_today_rounded,
+                              prefixIcon: const Icon(Icons.calendar_today_rounded,
                                   color: TruxifyColors.accentDark),
-                              prefixIconConstraints: const BoxConstraints(
-                                  minWidth: 40, minHeight: 40),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                             ),
                           ),
                         ),
@@ -552,8 +547,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                               labelText: 'Time',
                               prefixIcon: const Icon(Icons.access_time_rounded,
                                   color: TruxifyColors.accentDark),
-                              prefixIconConstraints: const BoxConstraints(
-                                  minWidth: 40, minHeight: 40),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                             ),
                           ),
                         ),
@@ -564,7 +558,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               ),
               const SizedBox(height: 24),
 
-              // GOODS DETAILS Section
               Text(
                 'GOODS DETAILS',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -577,19 +570,14 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               InfoCard(
                 child: Column(
                   children: [
-                    // Goods Type Dropdown
                     DropdownButtonFormField<String>(
                       initialValue: _goodsType,
                       items: _goodsTypes
-                          .map((type) =>
-                              DropdownMenuItem(value: type, child: Text(type)))
+                          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
                           .toList(),
-                      onChanged: (value) =>
-                          setState(() => _goodsType = value ?? _goodsType),
-                      decoration:
-                          const InputDecoration(labelText: 'Goods Type'),
+                      onChanged: (value) => setState(() => _goodsType = value ?? _goodsType),
+                      decoration: const InputDecoration(labelText: 'Goods Type'),
                     ),
-                    // "Other" custom goods type text field
                     if (_goodsType == 'Other') ...[
                       const SizedBox(height: 12),
                       TextField(
@@ -600,8 +588,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                           hintText: 'e.g. Chemicals, Scrap metal…',
                           prefixIcon: Icon(Icons.edit_note_rounded,
                               color: TruxifyColors.accentDark),
-                          prefixIconConstraints:
-                              BoxConstraints(minWidth: 40, minHeight: 40),
+                          prefixIconConstraints: BoxConstraints(minWidth: 40, minHeight: 40),
                         ),
                       ),
                     ],
@@ -617,10 +604,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Weight (t)',
                               hintText: '3',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 14),
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                               errorStyle: TextStyle(fontSize: 0, height: 0),
                             ),
                           ),
@@ -633,10 +618,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Length (ft)',
                               hintText: '12',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 14),
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                             ),
                           ),
                         ),
@@ -648,10 +631,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Width (ft)',
                               hintText: '6',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 14),
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                             ),
                           ),
                         ),
@@ -663,10 +644,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Height (ft)',
                               hintText: '6',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 14),
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                             ),
                           ),
                         ),
@@ -684,7 +663,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    // Stackable and Fragile toggles
                     Row(
                       children: [
                         Expanded(
@@ -692,8 +670,7 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             icon: Icons.layers_rounded,
                             label: 'Stackable',
                             isSelected: _stacked,
-                            onPressed: () =>
-                                setState(() => _stacked = !_stacked),
+                            onPressed: () => setState(() => _stacked = !_stacked),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -702,22 +679,19 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             icon: Icons.warning_rounded,
                             label: 'Fragile',
                             isSelected: _fragile,
-                            onPressed: () =>
-                                setState(() => _fragile = !_fragile),
+                            onPressed: () => setState(() => _fragile = !_fragile),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Special requirements
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Special requirements',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w600,
-                              color:
-                                  TruxifyColors.adaptiveSecondaryText(context),
+                              color: TruxifyColors.adaptiveSecondaryText(context),
                             ),
                       ),
                     ),
@@ -743,23 +717,18 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                             },
                             borderRadius: BorderRadius.circular(999),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               decoration: BoxDecoration(
                                 color: selected
-                                    ? (Theme.of(context).brightness ==
-                                            Brightness.dark
+                                    ? (Theme.of(context).brightness == Brightness.dark
                                         ? TruxifyColors.darkAccentLight
                                         : TruxifyColors.accentLight)
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
+                                    : Theme.of(context).colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
                                   color: selected
                                       ? Colors.transparent
-                                      : (Theme.of(context).brightness ==
-                                              Brightness.dark
+                                      : (Theme.of(context).brightness == Brightness.dark
                                           ? TruxifyColors.darkBorder
                                           : TruxifyColors.border),
                                 ),
@@ -769,27 +738,18 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                                 children: [
                                   if (selected)
                                     Icon(Icons.check_rounded,
-                                        color: TruxifyColors.accentDark,
-                                        size: 16)
+                                        color: TruxifyColors.accentDark, size: 16)
                                   else
                                     Icon(Icons.add_rounded,
-                                        color:
-                                            TruxifyColors.adaptiveSecondaryText(
-                                                context),
-                                        size: 16),
+                                        color: TruxifyColors.adaptiveSecondaryText(context), size: 16),
                                   const SizedBox(width: 6),
                                   Text(
                                     label,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(
+                                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
                                           fontWeight: FontWeight.w600,
                                           color: selected
                                               ? TruxifyColors.accentDark
-                                              : TruxifyColors
-                                                  .adaptiveSecondaryText(
-                                                      context),
+                                              : TruxifyColors.adaptiveSecondaryText(context),
                                         ),
                                   ),
                                 ],
@@ -804,7 +764,6 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Estimated Price Range with Left Border
               Stack(
                 children: [
                   Container(
@@ -812,10 +771,9 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                          color:
-                              (Theme.of(context).brightness == Brightness.dark
-                                  ? TruxifyColors.darkBorder
-                                  : TruxifyColors.border)),
+                          color: (Theme.of(context).brightness == Brightness.dark
+                              ? TruxifyColors.darkBorder
+                              : TruxifyColors.border)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.05),
@@ -833,24 +791,17 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                           children: [
                             Text(
                               'Estimated Price Range',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w600),
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: TruxifyColors.accentLight,
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
                                 'Stable this week',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                       color: TruxifyColors.accentDark,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -861,13 +812,9 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                         const SizedBox(height: 8),
                         Text(
                           '₹6,200 — ₹7,800',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                color: Theme.of(context).brightness ==
-                                        Brightness.dark
+                                color: Theme.of(context).brightness == Brightness.dark
                                     ? TruxifyColors.accent
                                     : TruxifyColors.accentDark,
                               ),
@@ -875,12 +822,8 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
                         const SizedBox(height: 4),
                         Text(
                           'Based on current demand + route',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                                  color: TruxifyColors.adaptiveSecondaryText(
-                                      context)),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: TruxifyColors.adaptiveSecondaryText(context)),
                         ),
                       ],
                     ),
@@ -904,10 +847,9 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Find Trucks Button
               PrimaryButton(
-                label: 'Find Trucks',
-                onPressed: _onFindTrucks,
+                label: _isLoading ? 'Finding Trucks...' : 'Find Trucks',
+                onPressed: _isLoading ? null : _onFindTrucks,
               ),
             ],
           ),
