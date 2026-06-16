@@ -2,6 +2,9 @@ import { WebSocketServer } from 'ws';
 import { mongoDb, redisClient, firebaseAdmin, supabase } from '../config/db.js';
 import jwt from 'jsonwebtoken';
 
+let mongoDbOverride = null;
+const getMongoDb = () => mongoDbOverride || mongoDb;
+
 // In-memory mapping of active client subscriptions
 const trackingSubscriptions = new Map();
 
@@ -438,20 +441,20 @@ async function flushTelemetryBuffer() {
     return;
   }
 
-  if (!mongoDb) {
+  if (!getMongoDb()) {
     console.error('[TRUXIFY STORAGE WARN] MongoDB is not initialized or disconnected. Retaining telemetry logs in memory buffer.');
     return;
   }
 
   const recordsToFlush = [...telemetryWriteBuffer];
+  telemetryWriteBuffer = [];
 
   console.log(`[TRUXIFY BATCH CONTROL] Committing bulk cluster of ${recordsToFlush.length} spatial rows to MongoDB...`);
 
   try {
-    const collection = mongoDb.collection('live_gps_pings');
+    const collection = getMongoDb().collection('live_gps_pings');
     await collection.insertMany(recordsToFlush, { ordered: false });
     console.log(`[TRUXIFY DB SUCCESS] Successfully flushed ${recordsToFlush.length} records to MongoDB clusters.`);
-    telemetryWriteBuffer = telemetryWriteBuffer.slice(recordsToFlush.length);
     flushBackoffMs = 1000;
   } catch (err) {
     console.error(`[TRUXIFY RETRY LOGIC] Bulk insert failed (backoff: ${flushBackoffMs}ms):`, err.message);
@@ -460,7 +463,6 @@ async function flushTelemetryBuffer() {
 
     if (isValidationError) {
       console.error(`[TRUXIFY FATAL DATA DROP] Discarding malformed tracking block payloads to prevent infinite loop memory bloat.`);
-      telemetryWriteBuffer = telemetryWriteBuffer.slice(recordsToFlush.length);
     } else {
       flushBackoffMs = Math.min(flushBackoffMs * 2, 60000);
 
@@ -528,15 +530,15 @@ export async function closeWebSocketServer() {
     wsHeartbeatInterval = null;
   }
 
-  // Wait for MongoDB to be available before final flush (skip wait in test environment)
-  if (!process.env.VITEST) {
-    const mongoMaxWaitMs = parseInt(process.env.MONGODB_SHUTDOWN_WAIT_MS || '10000', 10);
-    const mongoPollIntervalMs = 500;
+  // Wait for MongoDB to be available before final flush
+  const mongoMaxWaitMs = parseInt(process.env.MONGODB_SHUTDOWN_WAIT_MS || '10000', 10);
+  if (mongoMaxWaitMs > 0) {
+    const mongoPollIntervalMs = Math.min(500, mongoMaxWaitMs);
     const mongoWaitStart = Date.now();
-    while (!mongoDb && Date.now() - mongoWaitStart < mongoMaxWaitMs) {
+    while (!getMongoDb() && Date.now() - mongoWaitStart < mongoMaxWaitMs) {
       await new Promise(r => setTimeout(r, mongoPollIntervalMs));
     }
-    if (!mongoDb) {
+    if (!getMongoDb()) {
       const dataLoss = telemetryWriteBuffer.length;
       console.warn(`[TRUXIFY SHUTDOWN] MongoDB not available after waiting. ${dataLoss} telemetry records will be lost.`);
     }
@@ -781,5 +783,8 @@ export const __testing = {
     wsHeartbeatInterval = heartbeatInterval;
     wsServer = server;
     isSchedulerActive = Boolean(telemetryInterval);
+  },
+  setMongoDbOverride(val) {
+    mongoDbOverride = val;
   },
 };
