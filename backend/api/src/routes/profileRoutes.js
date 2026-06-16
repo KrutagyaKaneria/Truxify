@@ -6,8 +6,8 @@ import {
   getDriverDetails
 } from '../services/profileService.js';
 import { supabase } from '../config/db.js';
-
 import { ProfileModel } from '../models/ProfileModel.js';
+import { invalidateCachedProfile } from '../lib/profileCache.js';
 
 const router = express.Router();
 
@@ -48,6 +48,24 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
+// GET PROFILE NAME BY ID
+router.get('/:id/name', authenticate, async (req, res) => {
+  try {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: 'Failed to fetch profile name.', details: error.message });
+    if (!profile) return res.status(404).json({ error: 'Profile not found.' });
+
+    res.json({ full_name: profile.full_name });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // UPDATE PROFILE (basic version)
 router.put('/', authenticate, async (req, res) => {
   try {
@@ -77,6 +95,16 @@ router.put('/', authenticate, async (req, res) => {
 
       if (driverError) throw driverError;
     }
+
+    // Invalidate the profile cache so that the next request retrieves fresh profile data.
+    // We intentionally do not await here (making it fire-and-forget) to avoid adding
+    // Redis network round-trip latency to the response path. Since invalidateCachedProfile
+    // catches and logs errors internally, and the client receives the updated profile in the
+    // response payload, fire-and-forget is the optimal choice.
+    if (req.user && req.user.uid) {
+      void invalidateCachedProfile(req.user.uid);
+    }
+
     res.json({
       message: 'Profile updated',
       profile: data

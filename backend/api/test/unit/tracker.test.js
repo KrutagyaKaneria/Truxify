@@ -241,6 +241,61 @@ describe('tracker graceful shutdown', () => {
 
     errorSpy.mockRestore();
   });
+
+  it('waits for MongoDB connection during shutdown and flushes successfully', async () => {
+    const insertMany = vi.fn().mockResolvedValue({});
+    const collection = vi.fn().mockReturnValue({ insertMany });
+
+    const { closeWebSocketServer: closeWs, __testing: t } = await import('../../src/sockets/tracker.js');
+    
+    t.setTelemetryWriteBuffer([{ driver_id: 'driver-delayed' }]);
+
+    // Enable waiting and start with null (no db)
+    process.env.MONGODB_SHUTDOWN_WAIT_MS = '150';
+    t.setMongoDbOverride(null);
+
+    // Simulate MongoDB connecting after 50ms
+    setTimeout(() => {
+      t.setMongoDbOverride({ collection });
+    }, 50);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await closeWs();
+
+    expect(insertMany).toHaveBeenCalled();
+    expect(t.getTelemetryWriteBuffer().length).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    t.setMongoDbOverride(null);
+    process.env.MONGODB_SHUTDOWN_WAIT_MS = '0';
+  });
+
+  it('warns about data loss if MongoDB connection fails to become available during shutdown timeout', async () => {
+    const { closeWebSocketServer: closeWs, __testing: t } = await import('../../src/sockets/tracker.js');
+    
+    t.setTelemetryWriteBuffer([{ driver_id: 'driver-lost-1' }, { driver_id: 'driver-lost-2' }]);
+
+    // Set wait timeout to 50ms and ensure DB is null
+    process.env.MONGODB_SHUTDOWN_WAIT_MS = '50';
+    t.setMongoDbOverride(null);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await closeWs();
+
+    expect(t.getTelemetryWriteBuffer().length).toBe(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[TRUXIFY SHUTDOWN] MongoDB not available after waiting. 2 telemetry records will be lost.')
+    );
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+    t.setMongoDbOverride(null);
+    process.env.MONGODB_SHUTDOWN_WAIT_MS = '0';
+  });
 });
 
 describe('tracker WebSocket upgrade rate limiting', () => {
@@ -1063,7 +1118,7 @@ describe('flushTelemetryBuffer - with MongoDB', () => {
     const insertMany = vi.fn().mockImplementation(async () => {
       // Simulate a concurrent new ping arriving while DB write is active
       const { __testing: t } = await import('../../src/sockets/tracker.js');
-      t.setTelemetryWriteBuffer([{ driver_id: 'new-driver' }]);
+      t.getTelemetryWriteBuffer().push({ driver_id: 'new-driver' });
       throw new Error('network timeout');
     });
     const collection = vi.fn().mockReturnValue({ insertMany });
@@ -1085,6 +1140,46 @@ describe('flushTelemetryBuffer - with MongoDB', () => {
     expect(buffer).toHaveLength(2);
     expect(buffer[0].driver_id).toBe('old-driver');
     expect(buffer[1].driver_id).toBe('new-driver');
+  });
+
+  it('caps retry re-queue depth to prevent geometric growth on persistent failures', async () => {
+    const insertMany = vi.fn().mockImplementation(async () => {
+      // Simulate new pings arriving to almost fill the buffer while DB write is active
+      const { __testing: t } = await import('../../src/sockets/tracker.js');
+      const mockNewRecords = Array.from({ length: 4995 }, (_, i) => ({ driver_id: `new-driver-${i}` }));
+      t.getTelemetryWriteBuffer().push(...mockNewRecords);
+      throw new Error('transient write failure');
+    });
+    const collection = vi.fn().mockReturnValue({ insertMany });
+
+    vi.doMock('../../src/config/db.js', () => ({
+      mongoDb: { collection },
+      redisClient: null,
+      firebaseAdmin: null,
+      supabase: null,
+    }));
+
+    const { __testing: t } = await import('../../src/sockets/tracker.js');
+    const mockOldRecords = Array.from({ length: 10 }, (_, i) => ({ driver_id: `old-driver-${i}` }));
+    t.setTelemetryWriteBuffer(mockOldRecords);
+
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await t.flushTelemetryBuffer();
+
+    const buffer = t.getTelemetryWriteBuffer();
+    // 5000 is MAX_BUFFER_SIZE. 4995 new records + 5 kept old records = 5000 records.
+    expect(buffer).toHaveLength(5000);
+    // The first 5 old records (indices 0 to 4) should be dropped, keeping only indices 5 to 9.
+    expect(buffer[0].driver_id).toBe('old-driver-5');
+    expect(buffer[4].driver_id).toBe('old-driver-9');
+    expect(buffer[5].driver_id).toBe('new-driver-0');
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[TRUXIFY BUFFER DROP] Buffer full: dropped 5 oldest records from retry batch.')
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 
   it('discards buffer on MongoDB validation error (code 121)', async () => {
@@ -1212,6 +1307,40 @@ describe('handleLocationPing - broadcast to order subscribers', () => {
       );
 
       consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('per-connection message rate limiting (CWE-770)', () => {
+    beforeEach(() => {
+      __testing.clearTelemetryWriteBuffer();
+    });
+
+    it('allows messages within the per-second limit', async () => {
+      const ws = { driverId: 'driver-rate', send: vi.fn() };
+
+      for (let i = 0; i < 5; i++) {
+        await handleTrackingMessage(ws, JSON.stringify({
+          event: 'location_ping',
+          data: { latitude: 12.97, longitude: 77.59 },
+        }));
+      }
+
+      const buffer = __testing.getTelemetryWriteBuffer();
+      expect(buffer.length).toBe(5);
+    });
+
+    it('drops messages that exceed the per-second limit', async () => {
+      const ws = { driverId: 'driver-rate-limit', send: vi.fn() };
+
+      for (let i = 0; i < 15; i++) {
+        await handleTrackingMessage(ws, JSON.stringify({
+          event: 'location_ping',
+          data: { latitude: 12.97, longitude: 77.59 },
+        }));
+      }
+
+      const buffer = __testing.getTelemetryWriteBuffer();
+      expect(buffer.length).toBe(10);
     });
   });
 });

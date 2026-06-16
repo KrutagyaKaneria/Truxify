@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import tripRoutes from './routes/tripRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 
-import { closeDbConnections } from './config/db.js';
+import { closeDbConnections, waitForMongoDb } from './config/db.js';
 import { closeWebSocketServer, initWebSocketServer } from './sockets/tracker.js';
 
 // Load REST routes
@@ -16,6 +16,7 @@ import orderRoutes from './routes/orderRoutes.js';
 import driverRoutes from './routes/driverRoutes.js';
 import supportRoutes from './routes/supportRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
+import loadRoutes from './routes/loadRoutes.js';
 import truckRoutes from './routes/truckRoutes.js';
 
 // Configuration load from root folder is handled in db.js
@@ -191,6 +192,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/loads', loadRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/devices', deviceRoutes);
@@ -212,8 +214,9 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================================
-// WEBSOCKET SERVER INIT
+// WEBSOCKET SERVER INIT (wait for MongoDB before accepting WebSocket connections)
 // ============================================================================
+await waitForMongoDb();
 initWebSocketServer(server);
 
 // ============================================================================

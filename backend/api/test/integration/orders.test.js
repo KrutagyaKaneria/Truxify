@@ -23,6 +23,26 @@ const { createSupabaseMock } = await vi.importActual('../helpers/supabaseMock.js
 
 const m = createSupabaseMock();
 
+const originalRpc = m.supabase.rpc;
+m.supabase.rpc = vi.fn().mockImplementation(async (fnName, args) => {
+  if (fnName === 'complete_trip_tx') {
+    m.calls.push({ rpc: fnName, args });
+    const orderId = args.p_order_id;
+    const order = m.store.orders.find(o => o.id === orderId);
+    if (order) {
+      order.otp_verified = true;
+      order.status = 'payment_released';
+      order.updated_at = new Date().toISOString();
+      const timeline = m.store.order_timeline.find(t => t.order_display_id === order.order_display_id && t.milestone === 'Delivered');
+      if (timeline) {
+        timeline.completed = true;
+        timeline.milestone_time = new Date().toISOString();
+      }
+    }
+    return { data: null, error: null };
+  }
+  return originalRpc(fnName, args);
+});
 let mockRedis = null;
 
 vi.mock('../../src/config/db.js', () => ({
@@ -1690,6 +1710,61 @@ describe('POST /api/orders/predict-demand — ML demand prediction', () => {
     expect(res.body.error).toBe('Failed to fetch demand prediction from ML engine.');
     expect(res.body.details).toBe('ML service unavailable');
   });
+
+  it('restricts role to customer or driver (returns 403 for admin)', async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/predict-demand')
+      .set({
+        'x-user-id': '00000000-0000-0000-0000-000000000xyz',
+        'x-user-role': 'admin',
+        'x-user-name': 'Test Admin',
+      })
+      .send({
+        hour: 14.5,
+        day_of_week: 3,
+        temperature: 25,
+        precipitation: 0,
+        historical_volume: 50,
+        nearby_drivers: 15,
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Forbidden: Insufficient privileges.');
+  });
+
+  it('predictDemandLimiter uses user-based rate limiting key generator', async () => {
+    const route = orderRouter.stack.find(s => s.route && s.route.path === '/predict-demand');
+    expect(route).toBeDefined();
+
+    const rateLimitLayer = route.route.stack.find(
+      layer => layer.name === 'rateLimit' || (layer.handle && typeof layer.handle.resetKey === 'function')
+    );
+    expect(rateLimitLayer).toBeDefined();
+
+    const limiter = rateLimitLayer.handle;
+    expect(limiter.getKey).toBeDefined();
+
+    const mockUserVal = 'test-user-rate-limit-123';
+    const mockReq = {
+      user: { id: mockUserVal },
+      ip: '127.0.0.1',
+    };
+    const mockRes = {
+      headersSent: false,
+      setHeader: () => {},
+      getHeader: () => {},
+    };
+    let nextCalled = false;
+    const next = () => { nextCalled = true; };
+
+    await limiter(mockReq, mockRes, next);
+    expect(nextCalled).toBe(true);
+
+    const info = await limiter.getKey(mockUserVal);
+    expect(info).toBeDefined();
+    expect(info.totalHits).toBe(1);
+  });
 });
 
 describe('Customer actions: change-drop and cancel endpoints', () => {
@@ -1817,8 +1892,8 @@ describe('Customer actions: change-drop and cancel endpoints', () => {
       .set(CUSTOMER_HEADERS)
       .send({ reason: 'delivered' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Order cannot be cancelled after delivery or payment release.');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('Order was already cancelled, delivered, or payment released. Cannot cancel.');
   });
 
   it('rejects cancel when payment is already released', async () => {
@@ -1837,8 +1912,8 @@ describe('Customer actions: change-drop and cancel endpoints', () => {
       .set(CUSTOMER_HEADERS)
       .send({ reason: 'payment released' });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Order cannot be cancelled after delivery or payment release.');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('Order was already cancelled, delivered, or payment released. Cannot cancel.');
   });
 
   it('returns 400 when route estimate computation fails during change-drop', async () => {

@@ -22,6 +22,7 @@ export async function predictDemand(features) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(features),
+    signal: AbortSignal.timeout(5000),
   });
 
   if (!response.ok) {

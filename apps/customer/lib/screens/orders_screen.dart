@@ -11,6 +11,7 @@ import '../widgets/order_search_bar.dart';
 import 'live_tracking_screen.dart';
 import 'order_detail_screen.dart';
 import 'package:flutter/foundation.dart';
+import 'package:truxify_shared/shimmer_widget.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -32,6 +33,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   String? _lastUpdatedLabel;
   List<ActiveOrderData> _activeOrders = [];
   List<HistoryOrderData> _historyOrders = [];
+  bool _isLoading = true;
 
   String _formatStatus(String status) {
     switch (status) {
@@ -89,22 +91,23 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   String _resolveDriverName(Map<String, dynamic> order) {
-    // Option 1: resolved via Supabase join (profiles!orders_driver_id_fkey)
     final profile = order['profiles'];
     if (profile is Map<String, dynamic>) {
       final name = profile['full_name']?.toString().trim();
       if (name != null && name.isNotEmpty) return name;
     }
 
-    // Option 2: resolved via manual batch lookup (driver_name key)
     final driverName = order['driver_name']?.toString().trim();
     if (driverName != null && driverName.isNotEmpty) return driverName;
 
-    // Fallback: no driver info available
     return 'Driver Assigned';
   }
 
   Future<void> _loadOrders() async {
+    setState(() {
+      _isLoading = true;
+    });
+
     final connectivity = await Connectivity().checkConnectivity();
     final hasNetwork = connectivity.isNotEmpty &&
         !connectivity.contains(ConnectivityResult.none);
@@ -135,6 +138,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
         setState(() {
           _isOffline = false;
+          _isLoading = false;
           _lastUpdatedLabel = updatedAt;
 
           _activeOrders = activeOrders.map((order) {
@@ -182,6 +186,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
           setState(() {
             _isOffline = true;
+            _isLoading = false;
             _lastUpdatedLabel = updatedAt;
 
             debugPrint(
@@ -193,11 +198,17 @@ class _OrdersScreenState extends State<OrdersScreen>
 
           setState(() {
             _isOffline = true;
+            _isLoading = false;
           });
         }
       }
     } catch (e) {
       debugPrint('Failed to load orders: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -314,43 +325,61 @@ class _OrdersScreenState extends State<OrdersScreen>
               children: [
                 RefreshIndicator(
                   onRefresh: _loadOrders,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-                    itemCount: _filteredActiveOrders.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 14),
-                    itemBuilder: (context, index) {
-                      final order = _filteredActiveOrders[index];
-                      return ActiveOrderCard(
-                        order: order,
-                        onTap: () => Navigator.of(context).push(
-                          AppPageRoute(
-                            builder: (_) =>
-                                LiveTrackingScreen(orderId: order.orderId),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  child: _isLoading
+                      ? ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                          itemCount: 3,
+                          separatorBuilder: (_, __) => const SizedBox(height: 14),
+                          itemBuilder: (context, index) => const ShimmerOrderCard(),
+                        )
+                      : _filteredActiveOrders.isEmpty
+                          ? const Center(child: Text('No active orders'))
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                              itemCount: _filteredActiveOrders.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 14),
+                              itemBuilder: (context, index) {
+                                final order = _filteredActiveOrders[index];
+                                return ActiveOrderCard(
+                                  order: order,
+                                  onTap: () => Navigator.of(context).push(
+                                    AppPageRoute(
+                                      builder: (_) =>
+                                          LiveTrackingScreen(orderId: order.orderId),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                 ),
                 RefreshIndicator(
                   onRefresh: _loadOrders,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-                    itemCount: _filteredHistoryOrders.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 14),
-                    itemBuilder: (context, index) {
-                      final order = _filteredHistoryOrders[index];
-                      return HistoryOrderCard(
-                        order: order,
-                        onTap: () => Navigator.of(context).push(
-                          AppPageRoute(
-                            builder: (_) =>
-                                OrderDetailScreen(order: order),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  child: _isLoading
+                      ? ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                          itemCount: 3,
+                          separatorBuilder: (_, __) => const SizedBox(height: 14),
+                          itemBuilder: (context, index) => const ShimmerOrderCard(),
+                        )
+                      : _filteredHistoryOrders.isEmpty
+                          ? const Center(child: Text('No history orders'))
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                              itemCount: _filteredHistoryOrders.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 14),
+                              itemBuilder: (context, index) {
+                                final order = _filteredHistoryOrders[index];
+                                return HistoryOrderCard(
+                                  order: order,
+                                  onTap: () => Navigator.of(context).push(
+                                    AppPageRoute(
+                                      builder: (_) =>
+                                          OrderDetailScreen(order: order),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                 ),
               ],
             ),

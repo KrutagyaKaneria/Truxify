@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:truxify_driver/core/driver_session.dart';
 import 'package:truxify_driver/services/trip_service.dart';
+
+http.Client createUnusedHttpClient() => http.Client();
 
 class FakePostgrestTransformBuilder<T> implements PostgrestTransformBuilder<T> {
   final Future<dynamic> _futureValue;
@@ -165,7 +168,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
 
       await service.markStopCompleted(stopId, tripDisplayId);
 
@@ -211,7 +214,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
 
       await service.markStopCompleted(stopId, tripDisplayId);
 
@@ -245,7 +248,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
 
       expect(
         () => service.markStopCompleted(stopId, tripDisplayId),
@@ -273,13 +276,14 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
 
       expect(
         () => service.markStopCompleted(stopId, tripDisplayId),
         throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Unauthorized access to trip data'))),
       );
     });
+
   });
 
   group('TripService.updateOnlineStatus Tests', () {
@@ -300,7 +304,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
       await service.updateOnlineStatus(true);
 
       expect(eqParams['user_id'], equals(driverId));
@@ -320,7 +324,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
       expect(
         () => service.updateOnlineStatus(true),
         throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('Driver profile not found or update failed'))),
@@ -362,7 +366,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
       await service.startTrip(tripDisplayId);
 
       expect(updatedStops.first['is_current'], isTrue);
@@ -385,7 +389,7 @@ void main() {
         },
       );
 
-      final service = TripService(client: client);
+      final service = TripService(client: client, httpClient: createUnusedHttpClient());
       expect(
         () => service.startTrip(tripDisplayId),
         throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('No active stops found for this trip'))),
