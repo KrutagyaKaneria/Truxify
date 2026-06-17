@@ -220,6 +220,23 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen>
                 const SizedBox(height: 8),
                 Row(
                   children: [
+                    const Icon(Icons.auto_awesome_rounded,
+                        color: TruxifyColors.accentDark, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'AI Estimated Price',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
                     const Icon(Icons.lock_rounded,
                         color: TruxifyColors.accentDark, size: 18),
                     const SizedBox(width: 8),

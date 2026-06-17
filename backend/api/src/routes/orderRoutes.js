@@ -20,7 +20,7 @@ import { changeDropSchema, cancelOrderSchema } from '../validation/requestSchema
 import { awardReputationPoints } from '../services/reputation.js';
 import { escrowDeposit, escrowRelease, escrowRefund } from '../services/escrow.js';
 import { sendDeliveryOtpNotification } from '../services/notificationService.js';
-import { predictDemand } from '../services/ml.js';
+import { predictDemand, predictPrice } from '../services/ml.js';
 import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
@@ -179,6 +179,19 @@ router.post('/', authenticate, requireRole(['customer']), validateBody(createOrd
     });
   }
 
+  let estimatedPrice = null;
+  try {
+    const mlResult = await predictPrice({
+      distanceKm: pricing.distanceKm,
+      cargoWeightKg: Number(weight_tonnes) * 1000,
+      routeOrigin: pickup_address,
+      routeDestination: drop_address,
+    });
+    estimatedPrice = Math.round(mlResult.estimated_price * 100);
+  } catch (mlErr) {
+    console.warn('[ML] Price prediction unavailable, falling back to base pricing:', mlErr.message);
+  }
+
   const orderDisplayId = generateOrderDisplayId();
 
   try {
@@ -197,6 +210,7 @@ router.post('/', authenticate, requireRole(['customer']), validateBody(createOrd
         toll_estimate: pricing.tollEstimate,
         platform_fee: pricing.platformFee,
         total_amount: pricing.totalAmount,
+        estimated_price: estimatedPrice,
         payment_method_id, upi_id
       })
       .select('id, order_display_id, status, created_at')
