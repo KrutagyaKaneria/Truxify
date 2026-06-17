@@ -185,6 +185,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Top-level /health alias — returns 200 directly (no redirect) so Docker
+// health checks, Kubernetes probes, and uptime monitors all work correctly.
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date(),
+    service: 'Truxify API',
+    uptime: process.uptime(),
+  });
+});
+
 app.use('/api/orders', orderRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/loads', loadRoutes);

@@ -20,6 +20,7 @@ Truxify is a broker-free, ML-powered, blockchain-secured freight platform built 
   * Database & Security Guidelines
   * Backend Node.js / JavaScript Style
 * Local Development with BYPASS_AUTH
+* Local Development Environment (Docker)
 * Reporting Bugs
 * Suggesting Features
 * Community Guidelines
@@ -255,6 +256,98 @@ Alternatively, use the Supabase Table Editor → toggle **"View as role: authent
 * The backend uses ES Module syntax (`import`/`export`). Do not use CommonJS `require()`.
 * Validate all inputs using schema validation, and handle database and network errors gracefully.
 * Ensure sensitive credentials are read from environment variables and never checked into source control.
+
+---
+
+## Local Development Environment (Docker)
+
+This section covers running the **complete** Truxify backend stack locally using Docker Compose — no external cloud accounts required.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose v2)
+- Git
+
+### Setup
+
+**1. Copy the environment file:**
+
+```bash
+cp .env.example .env
+```
+
+**2. Copy the Docker Compose override file:**
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+This wires the `api` service to the local `db`, `mongo`, and `redis` containers via `DATABASE_URL`, `MONGODB_URI`, and `REDIS_URL`. Without this step the backend will not connect to local services.
+
+**3. Start the full stack:**
+
+```bash
+docker compose up
+```
+
+### Expected Services
+
+| Service | Image | Port |
+|---------|-------|------|
+| `api` | Local build | `5000` |
+| `ml-engine` | Local build | `8001` |
+| `db` | `postgis/postgis:15-3.3-alpine` | `5432` |
+| `mongo` | `mongo:6-jammy` | `27017` |
+| `redis` | `redis:7-alpine` | `6379` |
+
+All services communicate through the Docker bridge network.
+
+### Health Verification
+
+Once the stack is up, verify the backend is healthy:
+
+```bash
+curl http://localhost:5000/health
+```
+
+Expected response (HTTP 200):
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+Verify all containers are running:
+
+```bash
+docker ps
+```
+
+### Inspecting Logs
+
+If a service fails to start, inspect its logs:
+
+```bash
+# All services
+docker compose logs
+
+# A specific service
+docker compose logs api
+docker compose logs mongo
+docker compose logs db
+```
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| `api` container exits immediately | Missing `.env` or `docker-compose.override.yml` | Re-run the copy steps above |
+| `Connection refused` on port 5000 | Container still starting | Wait ~10 s and retry; check `docker compose logs api` |
+| Port already in use (5432 / 27017 / 6379) | Another local process occupies the port | Stop the conflicting service or change the host port in your override file |
+| MongoDB won't start | Port 27017 already taken by a local `mongod` | Run `sudo systemctl stop mongod` (Linux) or stop MongoDB from Services (Windows) |
+| `/health` returns `404` | Override file not copied — `api` built from wrong branch | Ensure `docker-compose.override.yml` exists and re-run `docker compose up --build` |
+| Backend can't reach `db` | `DATABASE_URL` not set in override | Open `docker-compose.override.yml` and confirm `DATABASE_URL` points to `db:5432` |
 
 ---
 
