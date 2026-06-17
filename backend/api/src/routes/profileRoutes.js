@@ -126,14 +126,18 @@ router.put('/fcm-token', authenticate, async (req, res) => {
     const userId = req.user.id;
     const { fcmToken } = req.body;
 
-    if (fcmToken !== null && fcmToken !== undefined && typeof fcmToken !== 'string') {
+    if (fcmToken === undefined) {
+      return res.status(400).json({ error: 'fcmToken is required. To clear, explicitly set to null.' });
+    }
+
+    if (fcmToken !== null && typeof fcmToken !== 'string') {
       return res.status(400).json({ error: 'fcmToken must be a string or null.' });
     }
 
     const { error } = await supabase
       .from('profiles')
       .update({
-        fcm_token: fcmToken ?? null,
+        fcm_token: fcmToken,
         fcm_token_updated_at: new Date().toISOString(),
       })
       .eq('id', userId);

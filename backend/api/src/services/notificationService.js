@@ -1,4 +1,5 @@
 import { supabase, firebaseAdmin } from '../config/db.js';
+import logger from '../middleware/logger.js';
 
 /**
  * Fetch a user's FCM token from the profiles table.
@@ -17,7 +18,7 @@ async function getUserFcmToken(userId) {
     if (error || !data?.fcm_token) return null;
     return data.fcm_token;
   } catch (err) {
-    console.error('[NotificationService] Failed to fetch FCM token:', err.message);
+    logger.error(`[NotificationService] Failed to fetch FCM token: ${err.message}`);
     return null;
   }
 }
@@ -31,15 +32,15 @@ async function getUserFcmToken(userId) {
  * @param {object} notification - { title, body }
  * @param {object} [data={}] - Optional key-value data payload.
  */
-async function sendFcmNotification(userId, notification, data = {}) {
+export async function sendFcmNotification(userId, notification, data = {}) {
   if (!firebaseAdmin || !firebaseAdmin.messaging) {
-    console.warn('[FCM] Firebase not configured — skipping push notification');
+    logger.warn('[FCM] Firebase not configured — skipping push notification');
     return;
   }
 
   const fcmToken = await getUserFcmToken(userId);
   if (!fcmToken) {
-    console.warn(`[FCM] No FCM token for user ${userId} — skipping push notification`);
+    logger.warn(`[FCM] No FCM token for user ${userId} — skipping push notification`);
     return;
   }
 
@@ -57,12 +58,33 @@ async function sendFcmNotification(userId, notification, data = {}) {
       data: stringData,
     });
 
-    console.log(`[FCM] Push notification sent to user ${userId} — messageId: ${messageId}`);
+    logger.info(`[FCM] Push notification sent to user ${userId} — messageId: ${messageId}`);
   } catch (err) {
     // Log the failure but never propagate — FCM errors must not block HTTP responses
-    console.error(
+    logger.error(
       `[FCM] Delivery failed for user ${userId} — errorCode: ${err.code ?? 'unknown'} — ${err.message}`
     );
+
+    // Clear permanently invalid/expired tokens (CodeRabbit feedback)
+    if (
+      err.code === 'messaging/registration-token-not-registered' ||
+      err.code === 'messaging/invalid-registration-token'
+    ) {
+      logger.warn(`[FCM] Clearing invalid FCM token for user ${userId} due to error: ${err.code}`);
+      if (supabase) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({
+              fcm_token: null,
+              fcm_token_updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId);
+        } catch (dbErr) {
+          logger.error(`[FCM] Failed to clear invalid FCM token for user ${userId}: ${dbErr.message}`);
+        }
+      }
+    }
   }
 }
 
@@ -74,7 +96,7 @@ async function sendFcmNotification(userId, notification, data = {}) {
  * @param {string} otp - The 6-digit delivery OTP.
  */
 export async function sendDeliveryOtpNotification(customerId, orderDisplayId, otp) {
-  console.log(
+  logger.info(
     `[NotificationService] Delivering OTP for Order ${orderDisplayId} to Customer ${customerId}`
   );
 
@@ -94,34 +116,38 @@ export async function sendDeliveryOtpNotification(customerId, orderDisplayId, ot
       });
 
     if (error) {
-      console.error('[NotificationService] Database insert failed:', error);
+      logger.error('[NotificationService] Database insert failed:', error);
     } else {
-      console.log('[NotificationService] Notification inserted successfully');
+      logger.info('[NotificationService] Notification inserted successfully');
     }
   } catch (dbErr) {
-    console.error(
+    logger.error(
       '[NotificationService] Database connection error during notification insert:',
       dbErr.message
     );
   }
 
   // 2. FCM Push Notification (fire-and-forget — never blocks the caller)
+  // Secure: Do not include raw OTP values in push notification text (CodeRabbit feedback)
   void sendFcmNotification(
     customerId,
-    { title, body },
+    {
+      title: 'Delivery Verification OTP',
+      body: `A delivery OTP has been generated for order ${orderDisplayId}. Open the app to view the code.`
+    },
     { orderDisplayId, notifType: 'delivery_otp' }
   );
 
-  // 3. SMS Gateway stub
+  // 3. SMS Gateway (e.g. Twilio) Stub
   if (process.env.TWILIO_AUTH_TOKEN) {
     const smsOtpLog = process.env.NODE_DEBUG
       ? `Sending SMS to customer phone containing OTP ${otp}`
       : `Sending SMS to customer phone containing OTP ${otp.slice(0, 2)}***`;
-    console.log(`[NotificationService] [SMS] ${smsOtpLog}`);
+    logger.info(`[NotificationService] [SMS] SMS stub: ${smsOtpLog}`);
   } else {
     const logOtp = process.env.NODE_DEBUG ? otp : `${otp.slice(0, 2)}***`;
-    console.log(
-      `[NotificationService] [SMS] No SMS gateway configured. Logging OTP out-of-band: ${logOtp}`
+    logger.info(
+      `[NotificationService] [SMS] SMS stub: No SMS gateway configured. Logging OTP out-of-band: ${logOtp}`
     );
   }
 }
@@ -145,10 +171,10 @@ export async function sendPushNotification(userId, title, body, notifType, metad
         .insert({ user_id: userId, title, body, notif_type: notifType, metadata });
 
       if (error) {
-        console.error('[NotificationService] Database insert failed:', error.message);
+        logger.error(`[NotificationService] Database insert failed: ${error.message}`);
       }
     } catch (dbErr) {
-      console.error('[NotificationService] Database error:', dbErr.message);
+      logger.error(`[NotificationService] Database error: ${dbErr.message}`);
     }
   }
 

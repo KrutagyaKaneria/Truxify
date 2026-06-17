@@ -145,4 +145,15 @@ describe('PUT /api/profile/fcm-token', () => {
     expect(updatePayload).toHaveProperty('fcm_token_updated_at');
     expect(typeof updatePayload.fcm_token_updated_at).toBe('string');
   });
+
+  it('returns 400 if fcmToken is omitted', async () => {
+    const res = await request(app)
+      .put('/api/profile/fcm-token')
+      .set('x-user-id', USER_ID)
+      .set('x-user-role', 'customer')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/required/i);
+  });
 });
