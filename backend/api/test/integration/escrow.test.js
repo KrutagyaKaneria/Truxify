@@ -13,16 +13,32 @@
  * Run with:  npm run test:integration -- test/integration/escrow.test.js
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-// Import without blockchain env vars so escrowContract = null (safe CI mode)
-// The module-level init warning is expected and suppressed by test/setup.js
+// Clear module cache to ensure we load a fresh instance of escrow.js
+vi.resetModules();
+
+// Back up and temporarily clear blockchain environment variables
+// to force the no-contract fallback path in escrow.js
+const oldRpcUrl = process.env.POLYGON_RPC_URL;
+const oldContractAddress = process.env.ESCROW_CONTRACT_ADDRESS;
+const oldRelayerPrivateKey = process.env.RELAYER_WALLET_PRIVATE_KEY;
+
+delete process.env.POLYGON_RPC_URL;
+delete process.env.ESCROW_CONTRACT_ADDRESS;
+delete process.env.RELAYER_WALLET_PRIVATE_KEY;
+
 const {
   getEscrowBookingId,
   escrowDeposit,
   escrowRelease,
   escrowRefund,
 } = await import('../../src/services/escrow.js');
+
+// Restore environment variables
+if (oldRpcUrl !== undefined) process.env.POLYGON_RPC_URL = oldRpcUrl;
+if (oldContractAddress !== undefined) process.env.ESCROW_CONTRACT_ADDRESS = oldContractAddress;
+if (oldRelayerPrivateKey !== undefined) process.env.RELAYER_WALLET_PRIVATE_KEY = oldRelayerPrivateKey;
 
 const ORDER_ID_A = '#FF20260521';
 const ORDER_ID_B = '#FF20260522';
