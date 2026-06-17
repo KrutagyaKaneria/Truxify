@@ -21,7 +21,16 @@ export const globalLimiter = rateLimit({
   legacyHeaders: false,
   store: buildStore('rl:global:'),
   message: { error: 'Rate limit exceeded', retryAfter: 900 },
-  skip: (req) => req.path === '/health',
+  skip: (req) => req.path === '/health' || req.path.startsWith('/health/'),
+});
+
+export const healthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: buildStore('rl:health:'),
+  message: { error: 'Rate limit exceeded', retryAfter: 60 },
 });
 
 export const authLimiter = rateLimit({

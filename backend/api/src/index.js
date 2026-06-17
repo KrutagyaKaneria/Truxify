@@ -4,7 +4,7 @@ import helmet from 'helmet'; // 🔒 ADDED HELMET IMPORT FOR ISSUE #361
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
-import { globalLimiter, authLimiter } from './middleware/rateLimiter.js';
+import { globalLimiter, authLimiter, healthLimiter } from './middleware/rateLimiter.js';
 import tripRoutes from './routes/tripRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 
@@ -150,6 +150,7 @@ app.use(requestLogger);
 // RATE LIMITING
 // ============================================================================
 app.use('/api/', globalLimiter);
+app.use('/api/health', healthLimiter);
 app.use('/api/v1/trips', tripRoutes);
 
 // ============================================================================
