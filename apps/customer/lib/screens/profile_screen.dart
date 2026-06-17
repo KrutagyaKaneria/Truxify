@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:truxify/widgets/menu_card.dart';
 import 'package:truxify/widgets/menu_item.dart';
 
@@ -41,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _totalOrders = 0;
   num _totalSaved = 0;
   num _co2ReducedKg = 0;
+  String _walletAddress = '';
 
   @override
   void initState() {
@@ -145,6 +150,160 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final minutes = DateTime.now().difference(lastUpdated).inMinutes;
     if (minutes < 1) return 'just now';
     return minutes == 1 ? '1 min ago' : '$minutes mins ago';
+  }
+
+  Future<void> _showWalletSheet(BuildContext context) async {
+    final walletController = TextEditingController(text: _walletAddress);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+              20, 10, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: TruxifyColors.hintText,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Text(
+                'Polygon Wallet Address',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              if (_walletAddress.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: TruxifyColors.accentLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.check_circle_rounded,
+                            color: TruxifyColors.success, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _walletAddress,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                              color: TruxifyColors.accentDark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              TextField(
+                controller: walletController,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                ),
+                decoration: InputDecoration(
+                  labelText: '0x...',
+                  hintText: '0x1234567890abcdef1234567890abcdef12345678',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final address = walletController.text.trim();
+                    if (address.isEmpty) return;
+                    try {
+                      final client = Supabase.instance.client;
+                      final token = client.auth.currentSession?.accessToken;
+                      final userId = client.auth.currentUser?.id ?? '';
+                      final response = await http.put(
+                        Uri.parse('http://localhost:5000/api/profile/wallet'),
+                        headers: <String, String>{
+                          'Content-Type': 'application/json',
+                          if (token != null) 'Authorization': 'Bearer $token',
+                          'x-user-id': userId,
+                          'x-user-role': 'customer',
+                        },
+                        body: jsonEncode(<String, String>{
+                          'wallet_address': address,
+                        }),
+                      );
+                      if (response.statusCode == 200) {
+                        setState(() {
+                          _walletAddress = address;
+                        });
+                        Navigator.of(context).pop();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Wallet address updated'),
+                              backgroundColor: TruxifyColors.success,
+                            ),
+                          );
+                        }
+                      } else {
+                        final body = jsonDecode(response.body)
+                            as Map<String, dynamic>;
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(body['error']?.toString() ??
+                                  'Failed to update wallet'),
+                              backgroundColor: TruxifyColors.errorRed,
+                            ),
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: $e'),
+                            backgroundColor: TruxifyColors.errorRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: TruxifyColors.accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Save Wallet Address'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _logout(BuildContext context) {
@@ -285,6 +444,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     showDivider: false,
                     onTap: () => Navigator.of(context).push(AppPageRoute(
                         builder: (_) => const SavedAddressesScreen())),
+                  ),
+                  MenuItem(
+                    icon: Icons.account_balance_wallet_rounded,
+                    label: 'Wallet Address',
+                    trailing: _walletAddress.isNotEmpty
+                        ? '${_walletAddress.substring(0, 6)}...${_walletAddress.substring(_walletAddress.length - 4)}'
+                        : 'Not set',
+                    showDivider: false,
+                    onTap: () => _showWalletSheet(context),
                   ),
                 ],
               ),

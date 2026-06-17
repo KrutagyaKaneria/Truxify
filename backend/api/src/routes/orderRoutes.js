@@ -621,6 +621,26 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
     if (!loadOffer) return res.status(404).json({ error: 'Load offer for this order was not found.' });
     if (bid.load_id !== loadOffer.id) return res.status(403).json({ error: 'Access Denied: Bid does not belong to this order.' });
 
+    // Fetch wallet addresses BEFORE any state change to validate escrow readiness
+    const [driverDetailsResult, customerProfileResult] = await Promise.all([
+      supabase.from('driver_details').select('polygon_wallet_address').eq('user_id', bid.driver_id).maybeSingle(),
+      supabase.from('profiles').select('polygon_wallet_address').eq('id', req.user.id).maybeSingle(),
+    ]);
+
+    const driverWallet = driverDetailsResult.data?.polygon_wallet_address ?? null;
+    const customerWallet = customerProfileResult.data?.polygon_wallet_address ?? null;
+
+    if (!driverWallet || !customerWallet) {
+      return res.status(400).json({
+        error: 'Escrow deposit prerequisites not met.',
+        details: {
+          driver_wallet_set: !!driverWallet,
+          customer_wallet_set: !!customerWallet,
+        },
+        recovery: 'Please ensure both you and the driver have valid Polygon wallet addresses configured in your profiles, then try again.'
+      });
+    }
+
     const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', bid.driver_id).maybeSingle();
     const { data: details } = await supabase.from('driver_details').select('rating, truck_id').eq('user_id', bid.driver_id).maybeSingle();
 
@@ -631,6 +651,28 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
       truckInfo = data;
     }
 
+    // Phase 1: Escrow deposit BEFORE accepting the bid
+    const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
+    let escrowTxHash = null;
+    try {
+      const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
+      if (txHash) {
+        escrowTxHash = txHash;
+      } else {
+        return res.status(500).json({
+          error: 'Escrow deposit failed. Bid was not accepted.',
+          recovery: 'Please try again or contact support if the issue persists.'
+        });
+      }
+    } catch (depositErr) {
+      return res.status(500).json({
+        error: 'Escrow deposit failed. Bid was not accepted.',
+        details: depositErr.message,
+        recovery: 'Check that the customer wallet has sufficient MATIC balance for the deposit and that the Polygon RPC endpoint is reachable.'
+      });
+    }
+
+    // Phase 2: Atomically accept the bid
     const { error: rpcErr } = await supabase.rpc('accept_bid_tx', {
       p_bid_id: bidId, p_order_id: orderId, p_load_id: bid.load_id, p_driver_id: bid.driver_id,
       p_truck_id: truckInfo?.id || null, p_driver_name: profile?.full_name || 'Assigned Driver',
@@ -638,49 +680,40 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
       p_bid_amount: bid.bid_amount, p_order_display_id: order.order_display_id
     });
 
-    if (rpcErr) return res.status(500).json({ error: 'Failed to accept bid atomically.', details: rpcErr.message });
-
-    // Record escrow booking reference immediately
-    const { error: escrowBookingErr } = await supabase
-      .from('orders')
-      .update({
-        escrow_booking_id: `escrow:${order.order_display_id}`,
-        escrow_status: 'funding',
-      })
-      .eq('id', orderId);
-
-    if (escrowBookingErr) {
-      console.warn('[escrow] Failed to update escrow_booking_id:', escrowBookingErr.message);
+    if (rpcErr) {
+      // Compensating transaction: escrow deposit succeeded but DB update failed
+      if (escrowTxHash) {
+        try {
+          await escrowRefund(order.order_display_id);
+          console.warn(`[escrow] Compensating refund issued for order ${order.order_display_id} after RPC failure.`);
+        } catch (refundErr) {
+          console.error(`[escrow] CRITICAL: Escrow refund also failed for order ${order.order_display_id}:`, refundErr.message);
+        }
+      }
+      return res.status(500).json({
+        error: 'Failed to accept bid atomically.',
+        details: rpcErr.message,
+        recovery: 'The escrow deposit has been refunded. Please try again.'
+      });
     }
 
-    // Fetch driver's and customer's Polygon wallet addresses for escrow deposit
-    const [driverDetailsResult, customerProfileResult] = await Promise.all([
-      supabase.from('driver_details').select('polygon_wallet_address').eq('user_id', bid.driver_id).maybeSingle(),
-      supabase.from('profiles').select('polygon_wallet_address').eq('id', req.user.id).maybeSingle(),
-    ]);
+    // Record escrow booking reference and deposit info
+    const escrowUpdate = {
+      escrow_booking_id: `escrow:${order.order_display_id}`,
+      escrow_status: escrowTxHash ? 'funded' : 'pending',
+    };
+    if (escrowTxHash) {
+      escrowUpdate.deposit_tx_hash = escrowTxHash;
+      escrowUpdate.escrow_deposited_at = new Date().toISOString();
+    }
 
-    const driverWallet = driverDetailsResult.data?.polygon_wallet_address ?? null;
-    const customerWallet = customerProfileResult.data?.polygon_wallet_address ?? null;
+    const { error: escrowUpdateErr } = await supabase
+      .from('orders')
+      .update(escrowUpdate)
+      .eq('id', orderId);
 
-    if (driverWallet && customerWallet) {
-      const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
-      try {
-        const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
-        if (txHash) {
-          await supabase.from('orders').update({
-            escrow_status: 'funded',
-            deposit_tx_hash: txHash,
-            escrow_deposited_at: new Date().toISOString(),
-          }).eq('id', orderId);
-        }
-      } catch (depositErr) {
-        console.error('[escrow] Deposit failed for order', orderId, ':', depositErr.message);
-        await supabase.from('orders').update({
-          escrow_status: 'fund_failed',
-        }).eq('id', orderId);
-      }
-    } else {
-      console.warn(`[escrow] Missing wallet address: driver=${!!driverWallet}, customer=${!!customerWallet} — skipping escrow deposit.`);
+    if (escrowUpdateErr) {
+      console.warn('[escrow] Failed to update escrow booking reference:', escrowUpdateErr.message);
     }
 
     res.json({ message: 'Bid accepted. Driver and truck assigned.' });
