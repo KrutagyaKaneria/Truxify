@@ -68,6 +68,15 @@ vi.mock('../../src/services/reputation.js', () => ({
   awardReputationPoints: awardReputationPointsMock,
 }));
 
+const escrowReleaseMock = vi.fn();
+vi.mock('../../src/services/escrow.js', async () => {
+  const actual = await vi.importActual('../../src/services/escrow.js');
+  return {
+    ...actual,
+    escrowRelease: escrowReleaseMock,
+  };
+});
+
 const predictDemandMock = vi.fn();
 vi.mock('../../src/services/ml.js', () => ({
   predictDemand: predictDemandMock,
@@ -127,6 +136,7 @@ describe('POST /api/orders — server-side pricing contract', () => {
     m.calls.length = 0;
     routeEstimateMock.mockReset();
     routeEstimateMock.mockResolvedValue(null);
+    escrowReleaseMock.mockReset();
   });
 
   it('happy path: 201, server-computed pricing persisted, no client monetary field in store', async () => {
@@ -1109,6 +1119,52 @@ describe('Delivery OTP Verification and Milestones', () => {
     const rpcCall = m.calls.find(c => c.rpc === 'complete_trip_tx');
     expect(rpcCall).toBeTruthy();
     expect(rpcCall.args).toEqual({ p_order_id: 'order-1' });
+  });
+
+  it('persists the escrow payout hash to wallet_transactions after delivery verification', async () => {
+    escrowReleaseMock.mockResolvedValue({
+      txHash: '0xtesthash',
+      bookingId: 'booking-1',
+    });
+
+    m.store.orders = [{
+      id: 'order-2',
+      driver_id: 'driver-456',
+      order_display_id: 'ORD002',
+      delivery_otp: '123456',
+      otp_verified: false,
+      status: 'in_transit',
+      total_amount: 125000,
+      escrow_status: 'funded',
+      otp_generated_at: new Date().toISOString(),
+    }];
+    m.store.order_timeline = [{
+      order_display_id: 'ORD002',
+      milestone: 'Delivered',
+      completed: false
+    }];
+
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/order-2/verify-delivery')
+      .set({
+        'x-user-id': 'driver-456',
+        'x-user-role': 'driver'
+      })
+      .send({ otp: 123456 });
+
+    expect(res.status).toBe(200);
+
+    const walletUpsert = m.calls.find(c => c.table === 'wallet_transactions' && c.mode === 'upsert');
+    expect(walletUpsert).toBeTruthy();
+    expect(walletUpsert.payload).toEqual(expect.objectContaining({
+      driver_id: 'driver-456',
+      order_display_id: 'ORD002',
+      amount: 125000,
+      txn_type: 'credit',
+      status: 'confirmed',
+      tx_hash: '0xtesthash',
+    }));
   });
 
   it('fails OTP verification if OTP is expired', async () => {

@@ -900,8 +900,12 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     ),
                   ),
                   title: Text(item['description'] ?? 'Pending payment'),
-                  subtitle:
-                      Text(item['trip_display_id'] ?? item['status'] ?? ''),
+                  subtitle: Text(
+                    item['tx_hash'] ??
+                        item['trip_display_id'] ??
+                        item['status'] ??
+                        '',
+                  ),
                   trailing: Text(
                     _formatRupees(amount),
                     style: GoogleFonts.dmSans(fontWeight: FontWeight.bold),

@@ -667,6 +667,7 @@ create table if not exists wallet_transactions (
                    check (txn_type in ('credit','debit','withdrawal','refund')),
   status           text not null default 'confirmed'
                    check (status in ('confirmed','pending','failed')),
+  tx_hash          text,                                      -- blockchain payout transaction hash
   description      text,
   created_at       timestamptz not null default now()
 );

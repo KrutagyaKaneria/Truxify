@@ -885,6 +885,32 @@ router.post('/:id/verify-delivery', authenticate, requireRole(['driver']), verif
             release_tx_hash: txHash,
             escrow_released_at: new Date().toISOString(),
           }).eq('id', orderId);
+
+          if (updatedOrder.driver_id) {
+            const { error: walletErr } = await supabase
+              .from('wallet_transactions')
+              .upsert(
+                {
+                  driver_id: updatedOrder.driver_id,
+                  order_display_id: updatedOrder.order_display_id,
+                  amount: updatedOrder.total_amount,
+                  txn_type: 'credit',
+                  status: 'confirmed',
+                  tx_hash: txHash,
+                  description: `Escrow payout for ${updatedOrder.order_display_id}`,
+                },
+                {
+                  onConflict: 'tx_hash',
+                }
+              );
+
+            if (walletErr) {
+              logger.error(
+                '[wallet] Failed to persist escrow payout:',
+                walletErr.message
+              );
+            }
+          }
         }
       } catch (releaseErr) {
         logger.error('[escrow] Release failed for order', orderId, ':', releaseErr.message);
