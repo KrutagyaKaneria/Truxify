@@ -13,12 +13,14 @@ vi.mock('../../src/config/db.js', () => ({
 }));
 
 vi.mock('../../src/services/escrow.js', () => ({
-  escrowDeposit: vi.fn(),
+  buildDepositTx: vi.fn(),
+  recordDepositTx: vi.fn(),
+  escrowRelease: vi.fn(),
   escrowRefund: vi.fn(),
 }));
 
 const { default: orderRouter } = await import('../../src/routes/orderRoutes.js');
-const { escrowDeposit: mockEscrowDeposit, escrowRefund: mockEscrowRefund } = await import('../../src/services/escrow.js');
+const { buildDepositTx: mockBuildDepositTx, recordDepositTx: mockRecordDepositTx, escrowRefund: mockEscrowRefund } = await import('../../src/services/escrow.js');
 
 function buildApp() {
   const app = express();
@@ -46,7 +48,8 @@ describe('Bid Routes', () => {
     m.store.driver_details = [];
     m.store.trucks = [];
     m.calls.length = 0;
-    mockEscrowDeposit.mockReset();
+    mockBuildDepositTx.mockReset();
+    mockRecordDepositTx.mockReset();
     mockEscrowRefund.mockReset();
   });
 
@@ -268,7 +271,7 @@ describe('Bid Routes', () => {
   });
 
   it('POST /:id/bids/:bidId/accept executes RPC', async () => {
-    mockEscrowDeposit.mockResolvedValue({ txHash: '0xescrowtest123' });
+    mockBuildDepositTx.mockResolvedValue({ txData: '0xdeadbeef' });
 
     m.store.orders.push({
       id: 'order-1',
@@ -317,7 +320,7 @@ describe('Bid Routes', () => {
   });
 
   it('POST /:id/bids/:bidId/accept triggers escrow deposit when wallet addresses present', async () => {
-    mockEscrowDeposit.mockResolvedValue({ txHash: '0xescrowtest123' });
+    mockBuildDepositTx.mockResolvedValue({ txData: '0xdeadbeef' });
 
     m.store.orders.push({
       id: 'order-escrow',
@@ -360,8 +363,9 @@ describe('Bid Routes', () => {
       .set(CUSTOMER);
 
     expect(res.status).toBe(200);
+    expect(res.body.depositTx).toBe('0xdeadbeef');
 
-    expect(mockEscrowDeposit).toHaveBeenCalledWith(
+    expect(mockBuildDepositTx).toHaveBeenCalledWith(
       'OD-ESCROW',
       '0x1234567890abcdef1234567890abcdef12345678',
       '0xAbcdef1234567890Abcdef1234567890Abcdef12',
@@ -369,12 +373,12 @@ describe('Bid Routes', () => {
     );
 
     let order = m.store.orders.find(o => o.id === 'order-escrow');
-    expect(order.escrow_status).toBe('funded');
-    expect(order.deposit_tx_hash).toBe('0xescrowtest123');
+    expect(order.escrow_status).toBe('funding');
+    expect(order.escrow_booking_id).toBe('escrow:OD-ESCROW');
   });
 
   it('POST /:id/bids/:bidId/accept returns error when escrow deposit fails before accepting bid', async () => {
-    mockEscrowDeposit.mockRejectedValue(new Error('Out of gas'));
+    mockBuildDepositTx.mockRejectedValue(new Error('Out of gas'));
 
     m.store.orders.push({
       id: 'order-escrow-fail',
@@ -417,15 +421,14 @@ describe('Bid Routes', () => {
       .set(CUSTOMER);
 
     expect(res.status).toBe(500);
-    expect(res.body).toMatchObject({ error: 'Escrow deposit failed. Bid was not accepted.' });
+    expect(res.body).toMatchObject({ error: 'Internal Server Error' });
 
     let order = m.store.orders.find(o => o.id === 'order-escrow-fail');
     expect(order.escrow_status).toBeUndefined();
   });
 
-  it('POST /:id/bids/:bidId/accept executes compensating refund when accept_bid_tx RPC fails after successful escrow deposit', async () => {
-    mockEscrowDeposit.mockResolvedValue({ txHash: '0xescrowtest123' });
-    mockEscrowRefund.mockResolvedValue({ txHash: '0xrefundtest456' });
+  it('POST /:id/bids/:bidId/accept returns 500 when RPC fails after buildDepositTx succeeds', async () => {
+    mockBuildDepositTx.mockResolvedValue({ txData: '0xdeadbeef' });
 
     const originalRpc = m.supabase.rpc;
     m.supabase.rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'accept_bid_tx RPC failed' } });
@@ -474,20 +477,18 @@ describe('Bid Routes', () => {
     expect(res.body).toMatchObject({
       error: 'Failed to accept bid atomically.',
       details: 'accept_bid_tx RPC failed',
-      recovery: 'The escrow deposit has been refunded. Please try again.'
+      recovery: 'The pending escrow deposit has been voided. Please try again.'
     });
 
-    expect(mockEscrowDeposit).toHaveBeenCalledWith(
+    expect(mockBuildDepositTx).toHaveBeenCalledWith(
       'OD-COMP-FAIL',
       '0x1234567890abcdef1234567890abcdef12345678',
       '0xAbcdef1234567890Abcdef1234567890Abcdef12',
       expect.any(BigInt)
     );
 
-    expect(mockEscrowRefund).toHaveBeenCalledWith('OD-COMP-FAIL');
-
     let order = m.store.orders.find(o => o.id === 'order-comp-fail');
-    expect(order.escrow_status).toBeUndefined();
+    expect(order.escrow_status).toBe('funding');
     expect(order.status).toBeUndefined();
 
     m.supabase.rpc = originalRpc;
@@ -536,7 +537,7 @@ describe('Bid Routes', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('Both customer and driver must connect a wallet before escrow can be initiated.');
-    expect(mockEscrowDeposit).not.toHaveBeenCalled();
+    expect(mockBuildDepositTx).not.toHaveBeenCalled();
   });
 
   it('POST /:id/bids/:bidId/accept rejects with 422 when driver wallet missing', async () => {
@@ -582,7 +583,7 @@ describe('Bid Routes', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('Both customer and driver must connect a wallet before escrow can be initiated.');
-    expect(mockEscrowDeposit).not.toHaveBeenCalled();
+    expect(mockBuildDepositTx).not.toHaveBeenCalled();
   });
 
   it('POST /:id/bids/:bidId/accept rejects invalid ownership', async () => {
@@ -628,7 +629,7 @@ describe('Bid Routes', () => {
       { id: 'driver-1', full_name: 'Driver One' },
     );
     m.store.driver_details.push({ user_id: 'driver-1', rating: 4.9, truck_id: null, polygon_wallet_address: '0xDriverWallet' });
-    mockEscrowDeposit.mockResolvedValue({ txHash: '0xescrowtest123' });
+    mockBuildDepositTx.mockResolvedValue({ txData: '0xdeadbeef' });
 
     m.programRpcError('Load offer is no longer available');
 
@@ -669,7 +670,7 @@ describe('Bid Routes', () => {
       { id: 'driver-1', full_name: 'Driver One' },
     );
     m.store.driver_details.push({ user_id: 'driver-1', rating: 4.9, truck_id: null, polygon_wallet_address: '0xDriverWallet' });
-    mockEscrowDeposit.mockResolvedValue({ txHash: '0xescrowtest123' });
+    mockBuildDepositTx.mockResolvedValue({ txData: '0xdeadbeef' });
 
     m.programRpcError('Order is no longer pending');
 
