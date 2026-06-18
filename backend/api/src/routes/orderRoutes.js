@@ -669,23 +669,33 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
     // Phase 1: Escrow deposit BEFORE accepting the bid
     let escrowTxHash = null;
     if (driverWallet && customerWallet) {
-      const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
-      try {
-        const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
-        if (txHash) {
-          escrowTxHash = txHash;
-        } else {
+      const maticPerPaisa = parseFloat(process.env.ESCROW_MATIC_PER_PAISA || '0');
+      if (!maticPerPaisa || !isFinite(maticPerPaisa) || maticPerPaisa <= 0) {
+        logger.warn('[escrow] ESCROW_MATIC_PER_PAISA not configured — skipping escrow deposit.');
+      } else {
+        const maticAmount = (bid.bid_amount * maticPerPaisa).toFixed(18);
+        const maxEscrowMatic = parseFloat(process.env.MAX_ESCROW_MATIC || '5');
+        if (parseFloat(maticAmount) > maxEscrowMatic) {
+          return res.status(400).json({ error: 'Computed escrow amount exceeds safety cap. Check ESCROW_MATIC_PER_PAISA configuration.' });
+        }
+        const amountWei = ethers.parseEther(maticAmount);
+        try {
+          const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
+          if (txHash) {
+            escrowTxHash = txHash;
+          } else {
+            return res.status(500).json({
+              error: 'Escrow deposit failed. Bid was not accepted.',
+              recovery: 'Please try again or contact support if the issue persists.'
+            });
+          }
+        } catch (depositErr) {
           return res.status(500).json({
             error: 'Escrow deposit failed. Bid was not accepted.',
-            recovery: 'Please try again or contact support if the issue persists.'
+            details: depositErr.message,
+            recovery: 'Check that the customer wallet has sufficient MATIC balance for the deposit and that the Polygon RPC endpoint is reachable.'
           });
         }
-      } catch (depositErr) {
-        return res.status(500).json({
-          error: 'Escrow deposit failed. Bid was not accepted.',
-          details: depositErr.message,
-          recovery: 'Check that the customer wallet has sufficient MATIC balance for the deposit and that the Polygon RPC endpoint is reachable.'
-        });
       }
     }
 
