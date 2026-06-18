@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { ethers } from 'ethers';
+import { bidLimiter } from '../middleware/rateLimiter.js';
 import { supabase, redisClient } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
@@ -436,7 +437,7 @@ router.get('/:id/timeline', authenticate, validateParams(paramIdSchema), async (
 // ============================================================================
 // 8. SUBMIT BID FOR LOAD OFFER (DRIVER)
 // ============================================================================
-router.post('/:id/bids', authenticate, requireRole(['driver']), validateParams(paramIdSchema), validateBody(submitBidSchema), async (req, res) => {
+router.post('/:id/bids', authenticate, requireRole(['driver']), bidLimiter, validateParams(paramIdSchema), validateBody(submitBidSchema), async (req, res) => {
   const loadOfferId = req.params.id;
   const { bid_amount } = req.body;
 

@@ -4,7 +4,7 @@ import helmet from 'helmet'; // 🔒 ADDED HELMET IMPORT FOR ISSUE #361
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
-import rateLimit from 'express-rate-limit';
+import { globalLimiter, authLimiter, healthLimiter } from './middleware/rateLimiter.js';
 import tripRoutes from './routes/tripRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 
@@ -149,23 +149,7 @@ app.use(requestLogger);
 // ============================================================================
 // RATE LIMITING
 // ============================================================================
-
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.originalUrl === '/api/health',
-  message: { error: 'Too many requests, please try again later.' }
-});
-
-const healthLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  message: { error: 'Health check rate limit exceeded.' }
-});
-
-app.use('/api/', limiter);
+app.use('/api/', globalLimiter);
 app.use('/api/health', healthLimiter);
 app.use('/api/v1/trips', tripRoutes);
 
@@ -209,7 +193,7 @@ app.use('/api/support', supportRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/trucks', truckRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.send('<h1>Truxify Backend API is running.</h1><p>Use WebSockets at <code>ws://localhost:5000/ws/tracking</code></p>');
