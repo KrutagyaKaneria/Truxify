@@ -1,4 +1,3 @@
-import 'dart:convert';
 import '../core/api_client.dart';
 import 'supabase_service.dart';
 
@@ -35,29 +34,28 @@ class ProfileService {
   }
 
   Future<void> logout() async {
-    final token = _client.auth.currentSession?.accessToken;
-    final userId = _client.auth.currentUser?.id;
+    final client = SupabaseService.client;
+    final token = client.auth.currentSession?.accessToken;
+    final userId = client.auth.currentUser?.id;
 
     if (token == null || token.isEmpty || userId == null) {
-      await _client.auth.signOut();
+      await client.auth.signOut();
       return;
     }
 
     try {
-      await _httpClient.post(
-        Uri.parse('$_apiBaseUrl/api/auth/logout'),
+      await _apiClient.post(
+        '/api/auth/logout',
         headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
           'x-user-id': userId,
           'x-user-role': 'customer',
         },
-      ).timeout(const Duration(seconds: 5));
+      );
     } catch (e) {
       // Log error but proceed to sign out locally
       print('Backend logout failed: $e');
     } finally {
-      await _client.auth.signOut();
+      await client.auth.signOut();
     }
   }
 }

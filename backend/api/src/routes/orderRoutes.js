@@ -671,7 +671,8 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
     if (driverWallet && customerWallet) {
       const amountWei = ethers.parseEther((bid.bid_amount / 100).toFixed(2).toString());
       try {
-        const { txHash } = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
+        const escrowResult = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
+        const txHash = escrowResult?.txHash ?? null;
         if (txHash) {
           escrowTxHash = txHash;
         } else {
