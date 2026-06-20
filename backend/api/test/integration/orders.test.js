@@ -1155,15 +1155,11 @@ describe('Delivery OTP Verification and Milestones', () => {
 
     expect(res.status).toBe(200);
 
-    const walletUpsert = m.calls.find(c => c.table === 'wallet_transactions' && c.mode === 'upsert');
-    expect(walletUpsert).toBeTruthy();
-    expect(walletUpsert.payload).toEqual(expect.objectContaining({
-      driver_id: 'driver-456',
-      order_display_id: 'ORD002',
-      amount: 125000,
-      txn_type: 'credit',
-      status: 'confirmed',
+    const walletUpdate = m.calls.find(c => c.table === 'wallet_transactions' && c.mode === 'update');
+    expect(walletUpdate).toBeTruthy();
+    expect(walletUpdate.payload).toEqual(expect.objectContaining({
       tx_hash: '0xtesthash',
+      description: 'Escrow payout for ORD002',
     }));
   });
 
