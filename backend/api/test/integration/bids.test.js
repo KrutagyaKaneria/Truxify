@@ -13,28 +13,15 @@ vi.mock('../../src/config/db.js', () => ({
 }));
 
 vi.mock('../../src/services/escrow.js', () => ({
-<<<<<<< HEAD
   buildDepositTx: vi.fn(),
   recordDepositTx: vi.fn(),
   escrowRelease: vi.fn(),
-=======
-  ESCROW_MATIC_PER_PAISA: 0.01,
-  buildDepositTx: vi.fn(),
-  escrowDeposit: vi.fn(),
->>>>>>> 9cd812f (fix merge confilt)
   escrowRefund: vi.fn(),
+  ESCROW_MATIC_PER_PAISA: 0.01,
 }));
 
 const { default: orderRouter } = await import('../../src/routes/orderRoutes.js');
-<<<<<<< HEAD
 const { buildDepositTx: mockBuildDepositTx, recordDepositTx: mockRecordDepositTx, escrowRefund: mockEscrowRefund } = await import('../../src/services/escrow.js');
-=======
-const {
-  buildDepositTx: mockBuildDepositTx,
-  escrowDeposit: mockEscrowDeposit,
-  escrowRefund: mockEscrowRefund,
-} = await import('../../src/services/escrow.js');
->>>>>>> 9cd812f (fix merge confilt)
 
 function buildApp() {
   const app = express();
@@ -63,11 +50,7 @@ describe('Bid Routes', () => {
     m.store.trucks = [];
     m.calls.length = 0;
     mockBuildDepositTx.mockReset();
-<<<<<<< HEAD
     mockRecordDepositTx.mockReset();
-=======
-    mockEscrowDeposit.mockReset();
->>>>>>> 9cd812f (fix merge confilt)
     mockEscrowRefund.mockReset();
     mockBuildDepositTx.mockResolvedValue({
       txData: {
@@ -391,9 +374,6 @@ describe('Bid Routes', () => {
       .set(CUSTOMER);
 
     expect(res.status).toBe(200);
-<<<<<<< HEAD
-    expect(res.body.depositTx).toBe('0xdeadbeef');
-=======
     expect(mockBuildDepositTx).toHaveBeenCalledWith(
       'OD-ESCROW',
       '0x1234567890abcdef1234567890abcdef12345678',
@@ -401,14 +381,6 @@ describe('Bid Routes', () => {
       expect.any(BigInt),
     );
     expect(res.body.depositTx).toEqual(expect.objectContaining({ to: expect.any(String), data: expect.any(String) }));
->>>>>>> 9cd812f (fix merge confilt)
-
-    expect(mockBuildDepositTx).toHaveBeenCalledWith(
-      'OD-ESCROW',
-      '0x1234567890abcdef1234567890abcdef12345678',
-      '0xAbcdef1234567890Abcdef1234567890Abcdef12',
-      expect.any(BigInt),
-    );
 
     let order = m.store.orders.find(o => o.id === 'order-escrow');
     expect(order.escrow_status).toBe('funding');

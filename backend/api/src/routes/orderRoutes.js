@@ -1,10 +1,12 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { ethers } from 'ethers';
 import { bidLimiter } from '../middleware/rateLimiter.js';
 import { supabase, redisClient } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
+import { z } from 'zod';
 import { computeOrderPricing } from '../lib/pricing.js';
 import { getRouteEstimate } from '../services/osrm.js';
 import {
@@ -18,18 +20,9 @@ import {
   predictDemandSchema
 } from '../validation/requestSchemas.js';
 import { awardReputationPoints } from '../services/reputation.js';
-<<<<<<< HEAD
 import { changeDropSchema, cancelOrderSchema } from '../validation/requestSchemas.js';
-import { buildDepositTx, recordDepositTx, escrowRelease, escrowRefund } from '../services/escrow.js';
+import { buildDepositTx, recordDepositTx, escrowRelease, escrowRefund, ESCROW_MATIC_PER_PAISA } from '../services/escrow.js';
 import { sendDeliveryOtpNotification, storeDeliveryOtp, getActiveDeliveryOtp, verifyDeliveryOtp, expireDeliveryOtps } from '../services/notificationService.js';
-=======
-import { buildDepositTx, escrowDeposit, escrowRelease, escrowRefund, ESCROW_MATIC_PER_PAISA } from '../services/escrow.js';
-import { sendDeliveryOtpNotification } from '../services/notificationService.js';
->>>>>>> 9cd812f (fix merge confilt)
-import { predictDemand, predictPrice } from '../services/ml.js';
-import rateLimit from 'express-rate-limit';
-import { z } from 'zod';
-import logger from '../middleware/logger.js';
 
 const router = express.Router();
 
@@ -678,15 +671,15 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
       truckInfo = data;
     }
 
-<<<<<<< HEAD
     // Phase 1: Build unsigned deposit tx for customer to sign
     let depositTxData = null;
     if (driverWallet && customerWallet) {
-      const maticPerPaisa = parseFloat(process.env.ESCROW_MATIC_PER_PAISA || '0');
-      if (!maticPerPaisa || !isFinite(maticPerPaisa) || maticPerPaisa <= 0) {
+      const maticPerPaisa = ESCROW_MATIC_PER_PAISA;
+      if (!Number.isFinite(maticPerPaisa) || maticPerPaisa <= 0) {
         logger.warn('[escrow] ESCROW_MATIC_PER_PAISA not configured — skipping escrow deposit.');
       } else {
-        const maticAmount = (bid.bid_amount * maticPerPaisa).toFixed(18);
+        // `bid.bid_amount` is stored in paise; convert to rupees before applying per-paisa MATIC rate
+        const maticAmount = ((bid.bid_amount / 100) * maticPerPaisa).toFixed(18);
         const maxEscrowMatic = Number.parseFloat(process.env.MAX_ESCROW_MATIC || '5');
         if (!Number.isFinite(maxEscrowMatic) || maxEscrowMatic <= 0) {
           logger.error('[escrow] MAX_ESCROW_MATIC is invalid — refusing deposit.');
@@ -700,47 +693,27 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
           order.order_display_id, customerWallet, driverWallet, amountWei,
         );
         if (txData) {
-          depositTxData = txData;
+          // Normalise txData: allow both populated transaction objects and
+          // raw signed/populated hex strings returned by mocks.
+          if (typeof txData === 'string' && txData.startsWith('0x')) {
+            try {
+              const parsed = ethers.Transaction.from(txData);
+              depositTxData = {
+                to: parsed.to,
+                data: parsed.data,
+                value: parsed.value ? parsed.value.toString() : undefined,
+              };
+            } catch (parseErr) {
+              // Fallback: return raw hex if parsing fails
+              depositTxData = { data: txData };
+            }
+          } else {
+            depositTxData = txData;
+          }
           await supabase.from('orders').update({
             escrow_booking_id: `escrow:${order.order_display_id}`,
             escrow_status: 'funding',
           }).eq('id', orderId);
-=======
-    // Phase 1: Escrow deposit preparation BEFORE accepting the bid
-    let escrowTxHash = null;
-    let depositTx = null;
-    if (driverWallet && customerWallet) {
-      const escrowAmountMatic = Number(bid.bid_amount) * ESCROW_MATIC_PER_PAISA;
-      if (!Number.isFinite(escrowAmountMatic) || escrowAmountMatic <= 0) {
-        return res.status(500).json({
-          error: 'Escrow preparation failed. Bid was not accepted.',
-          details: 'Invalid escrow amount.',
-        });
-      }
-
-      const amountWei = ethers.parseEther(escrowAmountMatic.toFixed(18).toString());
-      try {
-        const buildResult = await buildDepositTx(order.order_display_id, customerWallet, driverWallet, amountWei);
-        depositTx = buildResult.txData;
-      } catch (buildErr) {
-        return res.status(500).json({
-          error: 'Escrow preparation failed. Bid was not accepted.',
-          details: buildErr.message,
-          recovery: 'Check that the escrow contract configuration is correct and the wallet addresses are valid.'
-        });
-      }
-
-      try {
-        const escrowResult = await escrowDeposit(order.order_display_id, customerWallet, driverWallet, amountWei);
-        const txHash = escrowResult?.txHash ?? null;
-        if (txHash) {
-          escrowTxHash = txHash;
-        } else {
-          return res.status(500).json({
-            error: 'Escrow deposit failed. Bid was not accepted.',
-            recovery: 'Please try again or contact support if the issue persists.'
-          });
->>>>>>> 9cd812f (fix merge confilt)
         }
       }
     }
@@ -761,34 +734,9 @@ router.post('/:id/bids/:bidId/accept', authenticate, requireRole(['customer']), 
       });
     }
 
-<<<<<<< HEAD
     res.json({
       message: 'Bid accepted. Awaiting customer deposit signature.',
       depositTx: depositTxData,
-=======
-    // Record escrow booking reference and deposit info
-    const escrowUpdate = {
-      escrow_booking_id: `escrow:${order.order_display_id}`,
-      escrow_status: escrowTxHash ? 'funded' : 'pending',
-    };
-    if (escrowTxHash) {
-      escrowUpdate.deposit_tx_hash = escrowTxHash;
-      escrowUpdate.escrow_deposited_at = new Date().toISOString();
-    }
-
-    const { error: escrowUpdateErr } = await supabase
-      .from('orders')
-      .update(escrowUpdate)
-      .eq('id', orderId);
-
-    if (escrowUpdateErr) {
-      logger.warn('[escrow] Failed to update escrow booking reference:', escrowUpdateErr.message);
-    }
-
-    res.json({
-      message: 'Bid accepted. Driver and truck assigned.',
-      depositTx,
->>>>>>> 9cd812f (fix merge confilt)
     });
   } catch (err) {
     logger.error({ err }, '[orderRoutes] accept bid error');
