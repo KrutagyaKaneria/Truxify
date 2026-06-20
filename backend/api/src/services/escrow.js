@@ -35,6 +35,7 @@ const ESCROW_ABI = [
 const rpcUrl            = process.env.POLYGON_RPC_URL;
 const contractAddress   = process.env.ESCROW_CONTRACT_ADDRESS;
 const relayerPrivateKey = process.env.RELAYER_WALLET_PRIVATE_KEY;
+export const ESCROW_MATIC_PER_PAISA = parseFloat(process.env.ESCROW_MATIC_PER_PAISA ?? '0.01');
 
 /** @type {ethers.Contract | null} */
 let escrowContract = null;
@@ -80,6 +81,36 @@ export function getEscrowBookingId(orderDisplayId) {
  * @returns {Promise<{txData: object|null, bookingId: string}>}
  */
 export async function buildDepositTx(orderDisplayId, customerWalletAddress, driverWalletAddress, amountWei) {
+<<<<<<< HEAD
+=======
+  const bookingId = getEscrowBookingId(orderDisplayId);
+
+  if (!escrowContract) {
+    throw new Error('Escrow contract not initialised');
+  }
+  if (!ethers.isAddress(customerWalletAddress)) {
+    throw new Error('Invalid customer wallet address');
+  }
+  if (!ethers.isAddress(driverWalletAddress)) {
+    throw new Error('Invalid driver wallet address');
+  }
+  if (!amountWei || BigInt(amountWei) <= 0n) {
+    throw new Error('Invalid escrow deposit amount');
+  }
+
+  const txData = await escrowContract.populateTransaction.deposit(
+    bookingId,
+    customerWalletAddress,
+    driverWalletAddress,
+    {
+      value: amountWei,
+    }
+  );
+  return { txData, bookingId };
+}
+
+export async function escrowDeposit(orderDisplayId, customerWalletAddress, driverWalletAddress, amountWei) {
+>>>>>>> 9cd812f (fix merge confilt)
   const bookingId = getEscrowBookingId(orderDisplayId);
 
   if (!escrowContract) {
