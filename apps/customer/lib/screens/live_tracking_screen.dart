@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/offline/websocket/resilient_websocket.dart';
 import '../theme/app_theme.dart';
+import '../constants/supabase_config.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/timeline_connector.dart';
 import '../widgets/timeline_milestone.dart';
@@ -57,15 +58,23 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
 
     _loadOrder();
     _loadTimeline();
-    _subscribeToOrderUpdates();
-    _subscribeToTracking();
+    if (SupabaseConfig.isConfigured) {
+      _subscribeToOrderUpdates();
+      _subscribeToTracking();
+    }
   }
 
   @override
   void dispose() {
     _movementController.dispose();
-    _ordersChannel?.unsubscribe();
-    _supabaseRealtimeChannel?.unsubscribe();
+    if (SupabaseConfig.isConfigured) {
+      if (_ordersChannel != null) {
+        Supabase.instance.client.removeChannel(_ordersChannel!);
+      }
+      if (_supabaseRealtimeChannel != null) {
+        Supabase.instance.client.removeChannel(_supabaseRealtimeChannel!);
+      }
+    }
     _trackingSubscription?.cancel();
     _trackingWebSocket?.close();
     super.dispose();

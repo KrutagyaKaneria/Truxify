@@ -1,5 +1,6 @@
 // ignore_for_file: unused_element, unused_field
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:geolocator/geolocator.dart';
@@ -13,18 +14,33 @@ import 'package:truxify_driver/widgets/slide_to_confirm_button.dart';
 
 import '../core/app_routes.dart';
 import '../data/mock_data.dart';
+import '../models/app_models.dart';
+import '../models/earnings_daily_model.dart';
+import '../services/driver_earnings_service.dart';
 import '../services/geocode_service.dart';
+import '../services/marketplace_repository.dart';
 import '../services/route_service.dart';
 import '../services/trip_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/earnings_shimmer.dart';
 import '../widgets/map_markers.dart';
 import 'destination_picker_screen.dart';
 import '../widgets/pulsing_location_dot.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  HomeScreen({
+    super.key,
+    MarketplaceRepository? marketplaceRepo,
+    DriverEarningsService? earningsService,
+    this.mockLocationText,
+  }) : marketplaceRepo = marketplaceRepo ?? MarketplaceRepository(),
+       earningsService = earningsService ?? DriverEarningsService();
+
+  final MarketplaceRepository marketplaceRepo;
+  final DriverEarningsService earningsService;
+  final String? mockLocationText;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -53,22 +69,137 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoadingLocation = true;
   String? _locationError;
 
+  late final MarketplaceRepository _marketplaceRepo;
+  StreamSubscription<LoadOffer>? _loadSubscription;
+  Timer? _autoHideTimer;
+  LoadOffer? _latestNewLoad;
+  bool _dismissedNewLoad = false;
+
+  late final DriverEarningsService _earningsService;
+  EarningsDailyModel? _todayEarnings;
+  double? _driverRating;
+  bool _isLoadingMetrics = true;
+  String? _metricsError;
+
   @override
   void initState() {
     super.initState();
+    _earningsService = widget.earningsService;
+    _marketplaceRepo = widget.marketplaceRepo;
+    if (widget.mockLocationText != null) {
+      _currentLocationText = widget.mockLocationText;
+    }
     _initLocation();
+    _subscribeToNewLoads();
+    _loadDashboardMetrics();
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.mockLocationText != oldWidget.mockLocationText) {
+      setState(() {
+        _currentLocationText = widget.mockLocationText;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _loadSubscription?.cancel();
+    _autoHideTimer?.cancel();
     _mapController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
 
+  bool _isLoadMatching(LoadOffer load) {
+    if (_currentLocationText != null && _currentLocationText!.isNotEmpty) {
+      final locationLower = _currentLocationText!.toLowerCase();
+      final routeLower = load.route.toLowerCase();
+      final pickupLower = load.pickup.toLowerCase();
+
+      final parts = locationLower
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.length >= 3);
+
+      for (final part in parts) {
+        if (routeLower.contains(part) || pickupLower.contains(part)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
+  void _subscribeToNewLoads() {
+    try {
+      _loadSubscription = _marketplaceRepo.subscribeToNewLoads().listen((load) {
+        if (!mounted) return;
+        if (!_isLoadMatching(load)) return;
+
+        _autoHideTimer?.cancel();
+        setState(() {
+          _latestNewLoad = load;
+          _dismissedNewLoad = false;
+        });
+
+        _autoHideTimer = Timer(const Duration(seconds: 6), () {
+          if (mounted) {
+            setState(() {
+              _dismissedNewLoad = true;
+            });
+          }
+        });
+      });
+    } catch (_) {
+      // Supabase not available (e.g. in tests)
+    }
+  }
+
+  Future<void> _loadDashboardMetrics() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingMetrics = true;
+      _metricsError = null;
+    });
+
+    try {
+      final results = await Future.wait([
+        _earningsService.fetchTodayEarningsSummary(),
+        _earningsService.fetchDriverStats(),
+      ]);
+
+      if (!mounted) return;
+
+      setState(() {
+        _todayEarnings = results[0] as EarningsDailyModel?;
+        final stats = results[1] as Map<String, dynamic>;
+        _driverRating = (stats['rating'] as num?)?.toDouble();
+        _isLoadingMetrics = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingMetrics = false;
+        _metricsError = e.toString();
+      });
+    }
+  }
+
   /// Called once on startup — fetches GPS and resolves address.
   Future<void> _initLocation() async {
+    if (widget.mockLocationText != null) {
+      setState(() {
+        _currentLocationText = widget.mockLocationText;
+        _isLoadingLocation = false;
+      });
+      return;
+    }
+
     setState(() {
       _isLoadingLocation = true;
       _locationError = null;
@@ -407,7 +538,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
- Future<void> _completeRide() async {
+  Future<void> _completeRide() async {
   if (_activeTripId != null) {
     try {
       final stops = await _tripService.fetchTripStops(_activeTripId!);
@@ -436,6 +567,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: TruxifyColors.success,
       ),
     );
+    _loadDashboardMetrics();
   }
 }
 
@@ -477,6 +609,121 @@ class _HomeScreenState extends State<HomeScreen> {
                     : _buildSearchCard(context),
               ),
             ),
+
+            // New Load Notification Banner
+            if (_latestNewLoad != null && !_dismissedNewLoad)
+              Positioned(
+                left: 12,
+                right: 12,
+                top: 96,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() => _dismissedNewLoad = true);
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.loadDetail,
+                      arguments: _latestNewLoad,
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: TruxifyColors.accent,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: TruxifyColors.accent.withOpacity(0.25),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.local_shipping_rounded,
+                            color: Colors.white, size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'New Load Available!',
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _latestNewLoad!.route,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                '${_latestNewLoad!.weight != '—' ? '${_latestNewLoad!.weight} ' : ''}${_latestNewLoad!.goods} • ${_latestNewLoad!.estimatedProfit}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 10,
+                                  color: Colors.white.withOpacity(0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        GestureDetector(
+                          key: const Key('realtime_notification_view_button'),
+                          onTap: () {
+                            setState(() => _dismissedNewLoad = true);
+                            Navigator.of(context).pushNamed(
+                              AppRoutes.loadDetail,
+                              arguments: _latestNewLoad,
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'View',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: TruxifyColors.accent,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        GestureDetector(
+                          key: const Key('realtime_notification_close_button'),
+                          onTap: () {
+                            setState(() => _dismissedNewLoad = true);
+                          },
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: Colors.white.withOpacity(0.7),
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
 
             // Recenter FAB — hidden until GPS is ready
             if (_currentLocation != null)
@@ -1020,32 +1267,79 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildShiftMetric(
-                  icon: Icons.account_balance_wallet_outlined,
-                  value: '₹4,800',
-                  label: 'Today\'s Pay',
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildShiftMetric(
-                  icon: Icons.timer_outlined,
-                  value: '6.2 hrs',
-                  label: 'Shift Hours',
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildShiftMetric(
-                  icon: Icons.star_border_rounded,
-                  value: '4.85',
-                  label: 'Rating',
-                ),
-              ),
-            ],
+          if (_isLoadingMetrics)
+            const SummaryCardsShimmer()
+          else if (_metricsError != null)
+            _buildErrorMetrics()
+          else
+            _buildMetricsRow(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricsRow() {
+    final payValue = _todayEarnings != null
+        ? '₹${_todayEarnings!.amount.toStringAsFixed(0)}'
+        : '—';
+    final hoursValue = _todayEarnings != null
+        ? '${_todayEarnings!.hoursDriven.toStringAsFixed(1)} hrs'
+        : '—';
+    final ratingValue = _driverRating != null
+        ? _driverRating!.toStringAsFixed(2)
+        : '—';
+
+    return Row(
+      children: [
+        Expanded(
+          child: _buildShiftMetric(
+            icon: Icons.account_balance_wallet_outlined,
+            value: payValue,
+            label: 'Today\'s Pay',
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildShiftMetric(
+            icon: Icons.timer_outlined,
+            value: hoursValue,
+            label: 'Shift Hours',
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildShiftMetric(
+            icon: Icons.star_border_rounded,
+            value: ratingValue,
+            label: 'Rating',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorMetrics() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Theme.of(context).colorScheme.surfaceContainerHighest
+            : const Color(0xFFF9F7F7),
+        border: Border.all(color: TruxifyColors.border),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline_rounded,
+              size: 14, color: TruxifyColors.errorRed),
+          const SizedBox(width: 6),
+          Text(
+            'Metrics unavailable',
+            style: GoogleFonts.dmSans(
+              fontSize: 11,
+              color: TruxifyColors.errorRed,
+            ),
           ),
         ],
       ),
