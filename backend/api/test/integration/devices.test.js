@@ -84,7 +84,22 @@ describe('Device Routes Integration Tests', () => {
         .send({ platform: 'android' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('fcmToken is required');
+      expect(res.body.error).toBe('Validation failed');
+      expect(res.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: 'fcmToken' }),
+        ])
+      );
+    });
+
+    it('returns 400 if platform is not one of the allowed values', async () => {
+      const res = await request(buildApp())
+        .post('/api/devices/register')
+        .set(CUSTOMER_HEADERS)
+        .send({ fcmToken: 'token123', platform: 'smart-fridge' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Validation failed');
     });
 
     it('returns 500 if database upsert fails and does not expose internal error details', async () => {
