@@ -634,7 +634,6 @@ router.get('/:id/bids', authenticate, userLimiter, requireRole(['customer']), va
 router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['customer']), validateParams(acceptBidParamsSchema), async (req, res) => {
   const orderId = req.params.id;
   const bidId = req.params.bidId;
-
   // Acquire a distributed lock on this order to prevent concurrent bid acceptance
   const lockKey = `bid_accept_lock:${orderId}`;
   const lockTimeoutMs = 10000;
@@ -646,7 +645,6 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
       return res.status(409).json({ error: 'Another bid acceptance is in progress for this order. Please try again.' });
     }
   }
-
   try {
     const { data: order } = await supabase.from('orders').select('order_display_id, customer_id').eq('id', orderId).maybeSingle();
     if (!order || order.customer_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
@@ -692,7 +690,6 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
       if (!Number.isFinite(maticPerPaisa) || maticPerPaisa <= 0) {
         logger.warn('[escrow] ESCROW_MATIC_PER_PAISA not configured — skipping escrow deposit.');
       } else {
-        // `bid.bid_amount` is stored in paise; apply per-paisa MATIC rate directly
         const maticAmount = (bid.bid_amount * maticPerPaisa).toFixed(18);
         const maxEscrowMatic = Number.parseFloat(process.env.MAX_ESCROW_MATIC || '5');
         if (!Number.isFinite(maxEscrowMatic) || maxEscrowMatic <= 0) {
@@ -707,8 +704,6 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
           order.order_display_id, customerWallet, driverWallet, amountWei,
         );
         if (txData) {
-          // Normalise txData: allow both populated transaction objects and
-          // raw signed/populated hex strings returned by mocks.
           if (typeof txData === 'string' && txData.startsWith('0x')) {
             try {
               const parsed = ethers.Transaction.from(txData);
@@ -718,9 +713,6 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
                 value: parsed.value ? parsed.value.toString() : undefined,
               };
             } catch (parseErr) {
-              // Fallback: when txData is a raw hex string, preserve the data
-              // and supply a fallback recipient address so UI consumers can
-              // still handle the transaction object shape.
               depositTxData = {
                 to: process.env.ESCROW_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000',
                 data: txData,
