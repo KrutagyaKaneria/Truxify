@@ -1032,9 +1032,9 @@ router.post('/:id/cancel', authenticate, requireRole(['customer']), validatePara
       return res.status(409).json({ error: 'Cannot cancel: delivery OTP has already been verified.' });
     }
 
+    let refundTxHash = null;
     // Phase 1: Process escrow refund BEFORE changing order status
     if (order.escrow_status === 'funded') {
-      let refundTxHash = null;
       try {
         const { txHash } = await escrowRefund(order.order_display_id);
         refundTxHash = txHash;
@@ -1052,24 +1052,25 @@ router.post('/:id/cancel', authenticate, requireRole(['customer']), validatePara
           error: 'Escrow refund could not be processed. Order was not cancelled.',
         });
       }
-
-      // Update escrow record
-      const { error: escrowUpdateErr } = await supabase.from('orders').update({
-        escrow_status: 'refunded',
-        refund_tx_hash: refundTxHash,
-        escrow_refunded_at: new Date().toISOString(),
-      }).eq('order_display_id', orderId);
-
-      if (escrowUpdateErr) {
-        logger.error('[escrow] Failed to update escrow refund status:', escrowUpdateErr.message);
-      }
     } else if (order.escrow_booking_id) {
       logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);
     }
 
-    // Change order status to cancelled (only after escrow is handled)
+    // Phase 2: Change order status to cancelled and update escrow record atomically
+    const updatePayload = {
+      status: 'cancelled',
+      cancellation_reason: reason,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (order.escrow_status === 'funded') {
+      updatePayload.escrow_status = 'refunded';
+      updatePayload.refund_tx_hash = refundTxHash;
+      updatePayload.escrow_refunded_at = new Date().toISOString();
+    }
+
     const { data: updatedOrder, error: updateErr } = await supabase.from('orders')
-      .update({ status: 'cancelled', cancellation_reason: reason, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('order_display_id', orderId)
       .not('status', 'in', '("delivered","payment_released","cancelled")')
       .select('cancellation_fee, order_display_id, status, cancellation_reason, escrow_status')
