@@ -171,10 +171,3 @@ export const updateTicketSchema = z.object({
     invalid_type_error: "Status must be one of: open, in_progress, resolved, closed",
   }).optional(),
 }).strict();
-
-export const updateProfileSchema = z.object({
-  full_name: z.string().max(100, 'Name must be 100 characters or fewer').optional(),
-  language: z.string().max(10, 'Language code must be 10 characters or fewer').optional(),
-  dark_mode: z.boolean().optional(),
-  is_online: z.boolean().optional(),
-}).strict();
