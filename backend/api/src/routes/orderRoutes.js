@@ -269,6 +269,7 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
         fuel_cost: pricing.fuelCost,
         toll_cost: pricing.tollEstimate,
         net_profit: pricing.netProfit,
+        extra_distance_km: pricing.distanceKm,
         status: 'available'
       });
 
