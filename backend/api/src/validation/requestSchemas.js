@@ -142,3 +142,10 @@ export const registerDeviceSchema = z.object({
     invalid_type_error: 'platform must be one of: android, ios, web',
   }).default('android'),
 }).passthrough();
+
+export const updateProfileSchema = z.object({
+  full_name: z.string().max(100, 'Name must be 100 characters or fewer').optional(),
+  language: z.string().max(10, 'Language code must be 10 characters or fewer').optional(),
+  dark_mode: z.boolean().optional(),
+  is_online: z.boolean().optional(),
+});
