@@ -55,6 +55,9 @@ router.get('/', authenticate, userLimiter, requireRole(['driver']), async (req, 
     // Status filter - map 'open'/'available' to the DB's status 'available'
     let statusFilter = 'available';
     if (req.query.status) {
+      if (typeof req.query.status !== 'string') {
+        return res.status(400).json({ error: 'status must be a single string, not an array or object' });
+      }
       const statusLower = req.query.status.toLowerCase();
       if (statusLower === 'open' || statusLower === 'available') {
         statusFilter = 'available';

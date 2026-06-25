@@ -1,6 +1,8 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { userLimiter } from '../middleware/rateLimiter.js';
+import { validateBody } from '../middleware/validate.js';
+import { updateProfileSchema } from '../validation/requestSchemas.js';
 import {
   getProfile,
   getCustomerStats,
@@ -9,6 +11,8 @@ import {
 import { supabase } from '../config/db.js';
 import { ProfileModel } from '../models/ProfileModel.js';
 import { invalidateCachedProfile, invalidateCachedSupabaseProfile } from '../lib/profileCache.js';
+import { validateBody } from '../middleware/validate.js';
+import { updateProfileSchema, updateWalletSchema } from '../validation/requestSchemas.js';
 
 const router = express.Router();
 
@@ -68,7 +72,7 @@ router.get('/:id/name', authenticate, userLimiter, async (req, res) => {
 });
 
 // UPDATE WALLET ADDRESS
-router.put('/wallet', authenticate, userLimiter, async (req, res) => {
+router.put('/wallet', authenticate, userLimiter, validateBody(updateWalletSchema), async (req, res) => {
   const userId = req.user.id;
   const { wallet_address } = req.body;
 
@@ -106,6 +110,14 @@ router.put('/wallet', authenticate, userLimiter, async (req, res) => {
       return res.status(500).json({ error: 'Failed to update wallet address.', details: updateErr.message });
     }
 
+    const { error: driverDetailsErr } = await supabase
+      .from('driver_details')
+      .upsert({ user_id: userId, polygon_wallet_address: normalized }, { onConflict: 'user_id' });
+
+    if (driverDetailsErr) {
+      return res.status(500).json({ error: 'Failed to sync wallet to driver details.', details: driverDetailsErr.message });
+    }
+
     if (req.user && req.user.uid) {
       void invalidateCachedProfile(req.user.uid);
     }
@@ -120,7 +132,7 @@ router.put('/wallet', authenticate, userLimiter, async (req, res) => {
 });
 
 // UPDATE PROFILE (basic version)
-router.put('/', authenticate, userLimiter, async (req, res) => {
+router.put('/', authenticate, userLimiter, validateBody(updateProfileSchema), async (req, res) => {
   try {
     const userId = req.user.id;
     const { full_name, language, dark_mode, is_online } = req.body;

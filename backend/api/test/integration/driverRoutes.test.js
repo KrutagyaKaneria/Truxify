@@ -19,6 +19,10 @@ vi.mock('../../src/services/reputation.js', () => ({
   getDriverReputation: getDriverReputationMock,
 }));
 
+// Set OTP env var before importing the router module.
+// This is required because driverRoutes.js reads DRIVER_LOGIN_OTP at module level.
+process.env.DRIVER_LOGIN_OTP = '1234';
+
 const { default: driverRouter } = await import('../../src/routes/driverRoutes.js');
 
 
