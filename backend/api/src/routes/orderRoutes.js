@@ -8,7 +8,7 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { z } from 'zod';
 import { computeOrderPricing } from '../lib/pricing.js';
-import { getRouteEstimate } from '../services/osrm.js';
+import { getRouteEstimate, getRouteGeometry, buildStraightLineGeometry } from '../services/osrm.js';
 import {
   createOrderSchema,
   submitBidSchema,
@@ -1462,6 +1462,98 @@ router.get('/:id/driver-location', authenticate, userLimiter, requireRole(['cust
 
   } catch (err) {
     logger.error({ err }, 'Fetch driver location exception');
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// ============================================================================
+// 20. GET LIVE ROUTE GEOMETRY (CUSTOMER OR DRIVER)
+// ============================================================================
+
+router.get('/:id/route', authenticate, requireRole(['customer', 'driver']), validateParams(paramIdSchema), async (req, res) => {
+  const orderId = req.params.id; // this is order_display_id from client
+
+  try {
+    // 1. Resolve order and check authentication / authorization
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('id, customer_id, driver_id, status, pickup_lat, pickup_lng, drop_lat, drop_lng')
+      .eq('order_display_id', orderId)
+      .maybeSingle();
+
+    if (orderErr) {
+      return res.status(500).json({ error: 'Failed to fetch order details.' });
+    }
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    // Authorization: User must be either the customer who owns the order or the assigned driver
+    if (req.user.role === 'customer' && order.customer_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
+    }
+    if (req.user.role === 'driver' && order.driver_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access Denied: You are not assigned to this order.' });
+    }
+
+    if (order.drop_lat == null || order.drop_lng == null) {
+      return res.status(500).json({ error: 'Order is missing destination coordinates.' });
+    }
+
+    if (!order.driver_id) {
+      return res.status(404).json({ error: 'No driver assigned to this order.' });
+    }
+
+    // 2. Query MongoDB telemetry collection for the driver's latest position
+    if (!mongoDb) {
+      return res.status(503).json({ error: 'Telemetry database not available.' });
+    }
+
+    const latestTelemetry = await mongoDb
+      .collection('telemetry')
+      .find({ driver_id: order.driver_id })
+      .sort({ timestamp: -1 })
+      .limit(1)
+      .toArray();
+
+    if (!latestTelemetry || latestTelemetry.length === 0) {
+      return res.status(404).json({ error: 'No live telemetry found for this driver.' });
+    }
+
+    const originLat = Number(latestTelemetry[0].lat);
+    const originLng = Number(latestTelemetry[0].lng);
+
+    if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) {
+      return res.status(404).json({ error: 'Latest telemetry record is missing valid coordinates.' });
+    }
+
+    const destLat = Number(order.drop_lat);
+    const destLng = Number(order.drop_lng);
+
+    if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+      logger.error(`[route] Order ${order.id} has non-numeric destination coordinates.`);
+      return res.status(500).json({ error: 'Order has invalid destination coordinates.' });
+    }
+
+    // 3. Call OSRM for a road-following route, falling back to a straight
+    // line if OSRM is unavailable so the tracking screen never goes blank.
+    let feature = await getRouteGeometry({ originLat, originLng, destLat, destLng });
+    let usedFallback = false;
+
+    if (!feature) {
+      logger.warn(`[route] OSRM unavailable for order ${order.id}, falling back to straight line.`);
+      feature = buildStraightLineGeometry({ originLat, originLng, destLat, destLng });
+      usedFallback = true;
+    }
+
+    if (!feature) {
+      return res.status(502).json({ error: 'Failed to compute route.' });
+    }
+
+    return res.json({ ...feature, fallback: usedFallback });
+
+  } catch (err) {
+    logger.error({ err }, 'Fetch order route exception');
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });

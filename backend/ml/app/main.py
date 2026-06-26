@@ -2,6 +2,7 @@ import hmac
 import logging
 import os
 from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
@@ -26,6 +27,20 @@ app = FastAPI(
     title="Truxify ML Engine",
     description="Machine Learning microservice for Truxify",
     version="1.0.0",
+)
+
+# CORS: restrict to known origins — no wildcard "*" to prevent unauthorized cross-origin access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5000",   # Node.js API development
+        "http://127.0.0.1:5000",
+        "http://localhost:8000",   # FastAPI itself (browser testing)
+        "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 
