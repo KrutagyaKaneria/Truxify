@@ -251,6 +251,7 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
       { order_display_id: orderDisplayId, milestone: 'Arrived at Pickup', milestone_time: null, completed: false, sort_order: 35 },
       { order_display_id: orderDisplayId, milestone: 'Goods Loaded', milestone_time: null, completed: false, sort_order: 40 },
       { order_display_id: orderDisplayId, milestone: 'In Transit', milestone_time: null, completed: false, sort_order: 50 },
+      { order_display_id: orderDisplayId, milestone: 'Arriving', milestone_time: null, completed: false, sort_order: 55 },
       { order_display_id: orderDisplayId, milestone: 'Delivered', milestone_time: null, completed: false, sort_order: 60 }
     ];
 
@@ -813,10 +814,11 @@ router.put('/:id/milestones', authenticate, userLimiter, requireRole(['driver'])
       .from('order_timeline')
       .select('milestone, sort_order, completed')
       .eq('order_display_id', order.order_display_id)
-      .order('sort_order', { ascending: false });
+      .order('sort_order', { ascending: true });
     if (tlErr) return res.status(500).json({ error: 'Failed to fetch order timeline.' });
 
-    const lastCompleted = timeline.find(t => t.completed);
+    const canonicalMilestones = new Set([...Object.keys(milestoneMap), 'Order Placed', 'Delivered']);
+    const lastCompleted = [...timeline].reverse().find(t => t.completed && canonicalMilestones.has(t.milestone));
     const lastCompletedSortOrder = lastCompleted ? lastCompleted.sort_order : 10;
 
     const timelineEntry = timeline.find(t => t.milestone === milestone);
