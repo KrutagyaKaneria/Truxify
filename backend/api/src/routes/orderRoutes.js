@@ -14,6 +14,7 @@ import {
   submitBidSchema,
   submitRatingSchema,
   paramIdSchema,
+  uuidParamSchema,
   acceptBidParamsSchema,
   updateMilestoneSchema,
   verifyDeliverySchema,
@@ -1053,7 +1054,7 @@ router.post('/:id/resend-otp', authenticate, userLimiter, requireRole(['driver']
 // ============================================================================
 // 15. CHANGE DROP (CUSTOMER)
 // ============================================================================
-router.put('/:id/change-drop', authenticate, userLimiter, requireRole(['customer']), validateParams(paramIdSchema), validateBody(changeDropSchema), async (req, res) => {
+router.put('/:id/change-drop', authenticate, userLimiter, requireRole(['customer']), validateParams(uuidParamSchema), validateBody(changeDropSchema), async (req, res) => {
   const orderId = req.params.id;
   const { drop_address, drop_lat, drop_lng } = req.body;
 
@@ -1152,7 +1153,7 @@ router.put('/:id/change-drop', authenticate, userLimiter, requireRole(['customer
 // ============================================================================
 // 16. CANCEL ORDER AND REFUND ESCROW (CUSTOMER)
 // ============================================================================
-router.post('/:id/cancel', authenticate, userLimiter, requireRole(['customer']), validateParams(paramIdSchema), validateBody(cancelOrderSchema), async (req, res) => {
+router.post('/:id/cancel', authenticate, userLimiter, requireRole(['customer']), validateParams(uuidParamSchema), validateBody(cancelOrderSchema), async (req, res) => {
   const orderId = req.params.id;
   const { reason = null } = req.body || {};
 
@@ -1405,7 +1406,7 @@ router.post('/predict-demand', authenticate, userLimiter, requireRole(['customer
 // ============================================================================
 // 19. GET DRIVER LOCATION (CUSTOMER OR DRIVER)
 // ============================================================================
-router.get('/:id/driver-location', authenticate, userLimiter, requireRole(['customer', 'driver']), validateParams(paramIdSchema), async (req, res) => {
+router.get('/:id/driver-location', authenticate, userLimiter, requireRole(['customer', 'driver']), validateParams(uuidParamSchema), async (req, res) => {
   const orderId = req.params.id;
 
   try {
