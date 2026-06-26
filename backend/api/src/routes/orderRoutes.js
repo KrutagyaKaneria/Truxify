@@ -216,29 +216,41 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
     logger.warn({ err: mlErr.message }, 'Price prediction unavailable, falling back to base pricing');
   }
 
-  const orderDisplayId = generateOrderDisplayId();
+  const MAX_ID_RETRIES = 3;
+  let order = null;
+  let orderErr = null;
+  let orderDisplayId = null;
 
   try {
-    const { data: order, error: orderErr } = await supabase
-      .from('orders')
-      .insert({
-        order_display_id: orderDisplayId,
-        customer_id: req.user.id,
-        status: 'pending',
-        pickup_address, pickup_lat, pickup_lng,
-        drop_address, drop_lat, drop_lng,
-        pickup_date, pickup_time,
-        goods_type, weight_tonnes, length_ft, width_ft, height_ft,
-        is_stackable, is_fragile, special_requirements,
-        base_freight: pricing.baseFreight,
-        toll_estimate: pricing.tollEstimate,
-        platform_fee: pricing.platformFee,
-        total_amount: pricing.totalAmount,
-        estimated_price: estimatedPrice,
-        payment_method_id, upi_id
-      })
-      .select('id, order_display_id, status, created_at')
-      .single();
+    for (let attempt = 0; attempt < MAX_ID_RETRIES; attempt++) {
+      orderDisplayId = generateOrderDisplayId();
+      const result = await supabase
+        .from('orders')
+        .insert({
+          order_display_id: orderDisplayId,
+          customer_id: req.user.id,
+          status: 'pending',
+          pickup_address, pickup_lat, pickup_lng,
+          drop_address, drop_lat, drop_lng,
+          pickup_date, pickup_time,
+          goods_type, weight_tonnes, length_ft, width_ft, height_ft,
+          is_stackable, is_fragile, special_requirements,
+          base_freight: pricing.baseFreight,
+          toll_estimate: pricing.tollEstimate,
+          platform_fee: pricing.platformFee,
+          total_amount: pricing.totalAmount,
+          estimated_price: estimatedPrice,
+          payment_method_id, upi_id
+        })
+        .select('id, order_display_id, status, created_at')
+        .single();
+
+      order = result.data;
+      orderErr = result.error;
+
+      if (!orderErr || orderErr.code !== '23505') break;
+      logger.warn(`[Orders] display ID collision on ${orderDisplayId}, retrying (attempt ${attempt + 1}/${MAX_ID_RETRIES})`);
+    }
 
     if (orderErr) {
       logger.error('Order Insertion Error:', orderErr.message);
