@@ -240,7 +240,7 @@ router.patch('/tickets/:id', authenticate, userLimiter, validateBody(updateTicke
       if (req.user.role !== 'admin' && normalizedStatus !== ticket.status) {
         if (!USER_ALLOWED_STATUSES.includes(normalizedStatus)) {
           return res.status(403).json({
-            error: 'Access Denied: Only admins can change tickets to this status.',
+            error: 'Access Denied: Only admins can change ticket status.',
           });
         }
       }
