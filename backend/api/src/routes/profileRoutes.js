@@ -117,7 +117,7 @@ router.put('/wallet', authenticate, userLimiter, validateBody(updateWalletSchema
     }
 
     if (req.user && req.user.uid) {
-      void invalidateCachedProfile(req.user.uid);
+      try { await invalidateCachedProfile(req.user.uid); } catch (_) { logger.error('Cache invalidation failed', _); }
     }
     if (req.user && req.user.id) {
       void invalidateCachedSupabaseProfile(req.user.id);
@@ -160,12 +160,9 @@ router.put('/', authenticate, userLimiter, validateBody(updateProfileSchema), as
     }
 
     // Invalidate the profile cache so that the next request retrieves fresh profile data.
-    // We intentionally do not await here (making it fire-and-forget) to avoid adding
-    // Redis network round-trip latency to the response path. Since invalidateCachedProfile
-    // catches and logs errors internally, and the client receives the updated profile in the
-    // response payload, fire-and-forget is the optimal choice.
+    // We await to ensure cache consistency — failures are caught and logged internally.
     if (req.user && req.user.uid) {
-      void invalidateCachedProfile(req.user.uid);
+      try { await invalidateCachedProfile(req.user.uid); } catch (_) { /* logged internally */ }
     }
     if (req.user && req.user.id) {
       void invalidateCachedSupabaseProfile(req.user.id);
@@ -214,7 +211,7 @@ router.put('/fcm-token', authenticate, userLimiter, async (req, res) => {
 
     // Invalidate Redis cache — next request will refetch the profile with the new token
     if (req.user.uid) {
-      void invalidateCachedProfile(req.user.uid);
+      try { await invalidateCachedProfile(req.user.uid); } catch (_) { /* logged internally */ }
     }
     if (req.user.id) {
       void invalidateCachedSupabaseProfile(req.user.id);

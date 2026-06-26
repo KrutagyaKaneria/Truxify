@@ -234,16 +234,12 @@ export function initWebSocketServer(server) {
 
     ws.on('close', () => {
       logger.info('🔌 WebSocket connection closed.');
-      void (async () => {
-        await removeClientFromAllSubscriptions(ws);
-      })();
+      removeClientFromAllSubscriptions(ws).catch(err => logger.error('Subscription cleanup error on close:', err.message));
     });
 
     ws.on('error', (err) => {
       logger.error('🔌 WebSocket client error:', err.message);
-      void (async () => {
-        await removeClientFromAllSubscriptions(ws);
-      })();
+      removeClientFromAllSubscriptions(ws).catch(err => logger.error('Subscription cleanup error on error:', err.message));
     });
   });
 
