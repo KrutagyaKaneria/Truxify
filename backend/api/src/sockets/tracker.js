@@ -15,6 +15,10 @@ const RECOVERY_FILE_PATH = path.join(os.tmpdir(), 'truxify-telemetry-recovery.js
 // In-memory mapping of active client subscriptions
 const trackingSubscriptions = new Map();
 
+// Cached Supabase Realtime channels keyed by orderUUID to avoid creating a new
+// channel per location ping. Reused across pings and cleaned up on disconnect.
+const locationChannels = new Map();
+
 // =====================================================================
 // CLOCK SKEW & CIRCUIT BREAKER CONFIGURATION (#596)
 // =====================================================================
@@ -230,16 +234,12 @@ export function initWebSocketServer(server) {
 
     ws.on('close', () => {
       logger.info('🔌 WebSocket connection closed.');
-      void (async () => {
-        await removeClientFromAllSubscriptions(ws);
-      })();
+      removeClientFromAllSubscriptions(ws).catch(err => logger.error('Subscription cleanup error on close:', err.message));
     });
 
     ws.on('error', (err) => {
       logger.error('🔌 WebSocket client error:', err.message);
-      void (async () => {
-        await removeClientFromAllSubscriptions(ws);
-      })();
+      removeClientFromAllSubscriptions(ws).catch(err => logger.error('Subscription cleanup error on error:', err.message));
     });
   });
 
@@ -511,8 +511,13 @@ export async function handleLocationPing(ws, data) {
   }
 
   // Publish to Supabase Realtime channel driver-location:{orderId}
+  // Reuse cached channel to avoid creating a new channel per ping.
   if (supabase && orderUUID) {
-    const channel = supabase.channel(`driver-location:${orderUUID}`);
+    if (!locationChannels.has(orderUUID)) {
+      const channel = supabase.channel(`driver-location:${orderUUID}`);
+      locationChannels.set(orderUUID, channel);
+    }
+    const channel = locationChannels.get(orderUUID);
     channel.send({
       type: 'broadcast',
       event: 'location',
@@ -523,11 +528,8 @@ export async function handleLocationPing(ws, data) {
         lng,
         timestamp: new Date(serverNow).toISOString()
       }
-    }).then(() => {
-      supabase.removeChannel(channel);
     }).catch((err) => {
       logger.error('Failed to broadcast realtime location to Supabase:', err.message);
-      supabase.removeChannel(channel);
     });
   }
 }
@@ -852,6 +854,14 @@ async function removeClientFromAllSubscriptions(ws) {
     }
     if (clients.size === 0) {
       trackingSubscriptions.delete(key);
+      // Clean up the cached Supabase Realtime channel for this orderUUID
+      // so channels do not leak after the last subscriber disconnects.
+      if (locationChannels.has(key)) {
+        const channel = locationChannels.get(key);
+        supabase.removeChannel(channel);
+        locationChannels.delete(key);
+        logger.info(`🔌 Removed Supabase Realtime channel for order "${key}" on last subscriber disconnect.`);
+      }
     }
   });
 

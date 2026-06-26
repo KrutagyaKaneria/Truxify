@@ -24,6 +24,10 @@ import healthRoutes from './routes/healthRoutes.js';
 import logger from './middleware/logger.js';
 import { requestIdMiddleware, requestLogger } from './middleware/requestId.js';
 import { initSentry, flushSentry, sentryErrorHandler } from './middleware/sentry.js';
+import {
+  startEscrowRefundReconciliation,
+  stopEscrowRefundReconciliation,
+} from './services/escrowRefundReconciliation.js';
 
 // Configuration load from root folder is handled in db.js
 
@@ -203,6 +207,7 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   logger.info(`Truxify API listening on port ${PORT}`);
+  startEscrowRefundReconciliation();
 });
 
 // ============================================================================
@@ -212,6 +217,7 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 async function shutdown(signal) {
   logger.info(`${signal} received — draining connections...`);
+  stopEscrowRefundReconciliation();
 
   const forceExit = setTimeout(() => {
     logger.error('[shutdown] Timeout exceeded — forcing exit.');

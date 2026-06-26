@@ -70,11 +70,15 @@ vi.mock('../../src/services/reputation.js', () => ({
 }));
 
 const escrowReleaseMock = vi.fn();
+const submitEscrowRefundMock = vi.fn();
+const confirmEscrowRefundMock = vi.fn();
 vi.mock('../../src/services/escrow.js', async () => {
   const actual = await vi.importActual('../../src/services/escrow.js');
   return {
     ...actual,
     escrowRelease: escrowReleaseMock,
+    submitEscrowRefund: submitEscrowRefundMock,
+    confirmEscrowRefund: confirmEscrowRefundMock,
   };
 });
 
@@ -957,6 +961,7 @@ describe('Delivery OTP Verification and Milestones', () => {
     m.store.driver_details = [];
     m.store.trucks = [];
     m.calls.length = 0;
+    escrowReleaseMock.mockReset();
   });
 
   it('blocks direct transition to Delivered milestone with descriptive message', async () => {
@@ -1015,12 +1020,12 @@ describe('Delivery OTP Verification and Milestones', () => {
     expect(otpRecord.verified).toBe(false);
     expect(otpRecord.expires_at).toBeDefined();
 
-    // Verify customer notification was created
+    // Verify customer notification was created with OTP hash in metadata
     const notification = m.store.notifications.find(n => n.user_id === 'customer-456');
     expect(notification).toBeTruthy();
-    const otpInNotification = notification.body.match(/\b\d{6}\b/)[0];
-    const expectedHash = crypto.createHash('sha256').update(otpInNotification).digest('hex');
-    expect(otpRecord.otp_hash).toBe(expectedHash);
+    // OTP hash is stored in metadata (not plaintext in body) for security
+    expect(notification.metadata?.delivery_otp_hash).toBeDefined();
+    expect(notification.metadata.delivery_otp_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(notification.notif_type).toBe('order_update');
   });
 
@@ -1036,6 +1041,11 @@ describe('Delivery OTP Verification and Milestones', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Validation failed');
+    expect(res.body.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: 'otp' })
+      ])
+    );
   });
 
   it('fails OTP verification if driver is not assigned', async () => {
@@ -1181,6 +1191,93 @@ describe('Delivery OTP Verification and Milestones', () => {
       tx_hash: '0xtesthash',
       description: 'Escrow payout for ORD002',
     }));
+  });
+
+  it('returns payout pending and stores a retryable failure when escrow release throws', async () => {
+    escrowReleaseMock.mockRejectedValue(new Error('Polygon RPC unavailable'));
+
+    m.store.orders = [{
+      id: 'order-release-failed',
+      driver_id: 'driver-456',
+      order_display_id: 'ORD-FAILED',
+      status: 'in_transit',
+      total_amount: 125000,
+      escrow_status: 'funded',
+      escrow_release_attempts: 0,
+    }];
+    m.store.delivery_otps = [{
+      id: 'otp-release-failed',
+      order_id: 'order-release-failed',
+      otp_hash: crypto.createHash('sha256').update('123456').digest('hex'),
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      verified: false,
+      created_at: new Date().toISOString(),
+    }];
+
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/order-release-failed/verify-delivery')
+      .set({
+        'x-user-id': 'driver-456',
+        'x-user-role': 'driver'
+      })
+      .send({ otp: 123456 });
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual(expect.objectContaining({
+      escrow_status: 'release_failed',
+      payment_released: false,
+      retryable: true,
+    }));
+
+    const order = m.store.orders.find(o => o.id === 'order-release-failed');
+    expect(order.status).toBe('payment_released');
+    expect(order.escrow_status).toBe('release_failed');
+    expect(order.escrow_release_error).toBe('Polygon RPC unavailable');
+    expect(order.escrow_release_attempts).toBe(1);
+    expect(order.escrow_release_last_attempt_at).toBeTruthy();
+  });
+
+  it('does not report payment released when escrow release returns no transaction hash', async () => {
+    escrowReleaseMock.mockResolvedValue({
+      txHash: null,
+      bookingId: 'booking-missing-hash',
+    });
+
+    m.store.orders = [{
+      id: 'order-no-release-hash',
+      driver_id: 'driver-456',
+      order_display_id: 'ORD-NO-HASH',
+      status: 'in_transit',
+      total_amount: 125000,
+      escrow_status: 'funded',
+      escrow_release_attempts: 2,
+    }];
+    m.store.delivery_otps = [{
+      id: 'otp-no-release-hash',
+      order_id: 'order-no-release-hash',
+      otp_hash: crypto.createHash('sha256').update('123456').digest('hex'),
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      verified: false,
+      created_at: new Date().toISOString(),
+    }];
+
+    const app = buildApp();
+    const res = await request(app)
+      .post('/api/orders/order-no-release-hash/verify-delivery')
+      .set({
+        'x-user-id': 'driver-456',
+        'x-user-role': 'driver'
+      })
+      .send({ otp: 123456 });
+
+    expect(res.status).toBe(202);
+    expect(res.body.payment_released).toBe(false);
+    expect(res.body.escrow_status).toBe('release_failed');
+
+    const order = m.store.orders.find(o => o.id === 'order-no-release-hash');
+    expect(order.escrow_release_attempts).toBe(3);
+    expect(order.escrow_release_error).toContain('transaction hash');
   });
 
   it('fails OTP verification if OTP is expired', async () => {
@@ -1398,12 +1495,12 @@ describe('Delivery OTP Verification and Milestones', () => {
     expect(newOtp.verified).toBe(false);
     expect(newOtp.expires_at).toBeDefined();
 
-    // Verify customer notification was created with the new OTP
+    // Verify customer notification was created with new OTP hash in metadata
     const notification = m.store.notifications.find(n => n.user_id === 'customer-456');
     expect(notification).toBeTruthy();
-    const otpInNotification = notification.body.match(/\b\d{6}\b/)[0];
-    const expectedNewHash = crypto.createHash('sha256').update(otpInNotification).digest('hex');
-    expect(newOtp.otp_hash).toBe(expectedNewHash);
+    // OTP hash is stored in metadata (not plaintext in body) for security
+    expect(notification.metadata?.delivery_otp_hash).toBeDefined();
+    expect(notification.metadata.delivery_otp_hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   describe('Redis-based rate limiting & error fallback resilience', () => {
@@ -1890,6 +1987,8 @@ describe('Customer actions: change-drop and cancel endpoints', () => {
     m.calls.length = 0;
     routeEstimateMock.mockReset();
     routeEstimateMock.mockResolvedValue({ distanceKm: 100 });
+    submitEscrowRefundMock.mockReset();
+    confirmEscrowRefundMock.mockReset();
   });
 
   it('allows customer to change drop and returns recalculated pricing', async () => {
@@ -1971,6 +2070,88 @@ describe('Customer actions: change-drop and cancel endpoints', () => {
     const stored = m.store.orders.find(o => o.id === 'order-cancel-1');
     expect(stored.status).toBe('cancelled');
     expect(stored.cancellation_reason).toBe('Change of plans');
+  });
+
+  it('persists cancellation before submitting a funded escrow refund', async () => {
+    m.store.orders.push({
+      id: 'order-funded-cancel',
+      customer_id: CUSTOMER_HEADERS['x-user-id'],
+      order_display_id: 'OD-FUNDED-CANCEL',
+      status: 'in_transit',
+      escrow_status: 'funded',
+      escrow_refund_attempts: 0,
+      cancellation_fee: 500,
+    });
+    submitEscrowRefundMock.mockImplementation(async () => {
+      const stored = m.store.orders.find(o => o.id === 'order-funded-cancel');
+      expect(stored.status).toBe('cancelled');
+      expect(stored.escrow_status).toBe('refund_pending');
+      return {
+        txHash: `0x${'a'.repeat(64)}`,
+        waitForConfirmation: vi.fn().mockResolvedValue({ hash: `0x${'a'.repeat(64)}`, status: 1 }),
+      };
+    });
+
+    const res = await request(buildApp())
+      .post('/api/orders/OD-FUNDED-CANCEL/cancel')
+      .set(CUSTOMER_HEADERS)
+      .send({ reason: 'Change of plans' });
+
+    expect(res.status).toBe(200);
+    const stored = m.store.orders.find(o => o.id === 'order-funded-cancel');
+    expect(stored.status).toBe('cancelled');
+    expect(stored.escrow_status).toBe('refunded');
+    expect(stored.refund_tx_hash).toBe(`0x${'a'.repeat(64)}`);
+    expect(stored.escrow_refund_attempts).toBe(1);
+  });
+
+  it('keeps the order cancelled when escrow refund submission fails', async () => {
+    m.store.orders.push({
+      id: 'order-refund-fails',
+      customer_id: CUSTOMER_HEADERS['x-user-id'],
+      order_display_id: 'OD-REFUND-FAILS',
+      status: 'in_transit',
+      escrow_status: 'funded',
+      cancellation_fee: 500,
+    });
+    submitEscrowRefundMock.mockRejectedValue(new Error('Polygon unavailable'));
+
+    const res = await request(buildApp())
+      .post('/api/orders/OD-REFUND-FAILS/cancel')
+      .set(CUSTOMER_HEADERS)
+      .send({ reason: 'Change of plans' });
+
+    expect(res.status).toBe(202);
+    expect(res.body.escrow_status).toBe('refund_failed');
+    expect(res.body.retryable).toBe(true);
+    const stored = m.store.orders.find(o => o.id === 'order-refund-fails');
+    expect(stored.status).toBe('cancelled');
+    expect(stored.escrow_status).toBe('refund_failed');
+    expect(stored.escrow_refund_error).toContain('Polygon unavailable');
+  });
+
+  it('reconciles a previously submitted refund without submitting it twice', async () => {
+    const txHash = `0x${'b'.repeat(64)}`;
+    m.store.orders.push({
+      id: 'order-refund-pending',
+      customer_id: CUSTOMER_HEADERS['x-user-id'],
+      order_display_id: 'OD-REFUND-PENDING',
+      status: 'cancelled',
+      escrow_status: 'refund_pending',
+      refund_tx_hash: txHash,
+      cancellation_fee: 500,
+    });
+    confirmEscrowRefundMock.mockResolvedValue({ hash: txHash, status: 1 });
+
+    const res = await request(buildApp())
+      .post('/api/orders/OD-REFUND-PENDING/cancel')
+      .set(CUSTOMER_HEADERS)
+      .send({ reason: 'Change of plans' });
+
+    expect(res.status).toBe(200);
+    expect(confirmEscrowRefundMock).toHaveBeenCalledWith(txHash);
+    expect(submitEscrowRefundMock).not.toHaveBeenCalled();
+    expect(m.store.orders[0].escrow_status).toBe('refunded');
   });
 
   it('rejects cancel when requester is not the order owner', async () => {
