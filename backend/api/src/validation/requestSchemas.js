@@ -170,6 +170,13 @@ export const updateTicketSchema = z.object({
   }).optional(),
 }).strict();
 
+export const driverStatementSchema = z.object({
+  start_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), {
+    message: 'Must be a valid date string',
+  }).optional(),
+  end_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), {
+    message: 'Must be a valid date string',
+  }).optional(),
 
 // Indian vehicle registration plate: 2 letters, 2 digits, up to 3 letters, up to 4 digits
 // e.g. MH12AB1234 or DL01C1234

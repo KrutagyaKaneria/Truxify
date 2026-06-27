@@ -1,7 +1,8 @@
 import express from 'express';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { userLimiter } from '../middleware/rateLimiter.js';
-import { validateBody } from '../middleware/validate.js';
+import { validateBody, validateQuery } from '../middleware/validate.js';
+import { updateProfileSchema, updateWalletSchema, driverStatementSchema } from '../validation/requestSchemas.js';
 import {
   getProfile,
   getCustomerStats,
@@ -239,6 +240,74 @@ router.put('/fcm-token', authenticate, userLimiter, async (req, res) => {
   }
 });
 
+// GET DRIVER STATEMENT
+router.get('/driver/statement', authenticate, requireRole(['driver']), userLimiter, validateQuery(driverStatementSchema), async (req, res) => {
+  const userId = req.user.id;
+  const { start_date, end_date } = req.query;
+
+  try {
+    let query = supabase
+      .from('orders')
+      .select('id, order_display_id, status, pickup_address, drop_address, pickup_date, total_amount, base_freight, toll_estimate, platform_fee, created_at')
+      .eq('driver_id', userId)
+      .in('status', ['delivered', 'payment_released']);
+
+    if (start_date) {
+      query = query.gte('pickup_date', start_date);
+    }
+    if (end_date) {
+      query = query.lte('pickup_date', end_date);
+    }
+
+    const { data: trips, error } = await query.order('pickup_date', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch statement records.', details: error.message });
+    }
+
+    // Compute totals
+    let totalBaseFreight = 0;
+    let totalPlatformFees = 0;
+    let totalTollEstimate = 0;
+    let totalNetEarnings = 0;
+
+    const tripsList = (trips || []).map(trip => {
+      const baseFreight = Number(trip.base_freight) || 0;
+      const platformFee = Number(trip.platform_fee) || 0;
+      const tollEstimate = Number(trip.toll_estimate) || 0;
+      const netEarnings = baseFreight - platformFee;
+
+      totalBaseFreight += baseFreight;
+      totalPlatformFees += platformFee;
+      totalTollEstimate += tollEstimate;
+      totalNetEarnings += netEarnings;
+
+      return {
+        id: trip.id,
+        order_display_id: trip.order_display_id,
+        pickup_address: trip.pickup_address,
+        drop_address: trip.drop_address,
+        pickup_date: trip.pickup_date,
+        base_freight: baseFreight,
+        platform_fee: platformFee,
+        toll_estimate: tollEstimate,
+        net_earnings: netEarnings,
+        status: trip.status
+      };
+    });
+
+    res.json({
+      summary: {
+        total_trips: tripsList.length,
+        total_base_freight: totalBaseFreight,
+        total_platform_fees: totalPlatformFees,
+        total_toll_estimate: totalTollEstimate,
+        total_net_earnings: totalNetEarnings
+      },
+      trips: tripsList
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
 // ADMIN CACHE INVALIDATION
 // Invalidates the profile cache for a specific user, forcing the next
 // authenticated request to refetch from Supabase. Use this after admin
