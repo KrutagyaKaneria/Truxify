@@ -1541,7 +1541,7 @@ router.get('/:id/driver-location', authenticate, userLimiter, requireRole(['cust
 // 20. GET LIVE ROUTE GEOMETRY (CUSTOMER OR DRIVER)
 // ============================================================================
 
-router.get('/:id/route', authenticate, requireRole(['customer', 'driver']), validateParams(paramIdSchema), async (req, res) => {
+router.get('/:id/route', authenticate, userLimiter, requireRole(['customer', 'driver']), validateParams(paramIdSchema), async (req, res) => {
   const orderId = req.params.id; // this is order_display_id from client
 
   try {
