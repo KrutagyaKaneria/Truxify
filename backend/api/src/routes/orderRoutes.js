@@ -953,6 +953,25 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       return res.status(500).json({ error: 'Failed to complete trip and release payment.', details: rpcErr.message });
     }
 
+    // Post-RPC verification: confirm the order was actually updated to payment_released
+    const { data: verifiedOrder, error: verifyErr } = await supabase
+      .from('orders')
+      .select('status')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (verifyErr || !verifiedOrder) {
+      logger.error(`[verify-delivery] Failed to verify order status after RPC for order ${orderId}`);
+      return res.status(500).json({ error: 'Failed to verify order status after payment release.' });
+    }
+
+    if (verifiedOrder.status !== 'payment_released') {
+      logger.warn(`[verify-delivery] Order ${orderId} status changed to "${verifiedOrder.status}" — payment was not released.`);
+      return res.status(409).json({
+        error: 'Order status changed during processing. Payment was not released.',
+      });
+    }
+
     // OTP is only consumed after the RPC succeeds — if the RPC fails the driver can retry
     await verifyDeliveryOtp(orderId);
     await clearOtpState(orderId);
