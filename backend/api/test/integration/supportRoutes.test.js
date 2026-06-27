@@ -346,7 +346,7 @@ describe('Support Routes', () => {
         .send({ status: 'in_progress' });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('Access Denied: Only admins can change tickets to this status.');
+      expect(res.body.error).toBe('Access Denied: Only admins can change ticket status.');
     });
 
     it('allows admin to change status to in_progress or resolved', async () => {
@@ -459,6 +459,99 @@ describe('Support Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.tickets).toHaveLength(1);
       expect(res.body.tickets[0].id).toBe('t1');
+    });
+  });
+
+  describe('Support Ticket Comments', () => {
+    beforeEach(() => {
+      m.store.support_ticket_comments = [];
+      m.store.support_tickets = [{
+        id: 't-123',
+        user_id: 'customer-1',
+        subject: 'Need help',
+        category: 'general',
+        status: 'open',
+      }];
+    });
+
+    it('POST /tickets/:id/comments adds a comment for ticket owner', async () => {
+      const res = await request(buildApp())
+        .post('/api/support/tickets/t-123/comments')
+        .set(CUSTOMER_HEADERS)
+        .send({ message: 'This is a test comment' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.message).toBe('Comment added successfully.');
+      expect(res.body.comment.message).toBe('This is a test comment');
+      expect(res.body.comment.ticket_id).toBe('t-123');
+
+      const commentInsert = m.calls.find(c => c.table === 'support_ticket_comments' && c.mode === 'insert');
+      expect(commentInsert).toBeTruthy();
+      expect(commentInsert.payload.message).toBe('This is a test comment');
+    });
+
+    it('POST /tickets/:id/comments returns 403 for non-owner', async () => {
+      const res = await request(buildApp())
+        .post('/api/support/tickets/t-123/comments')
+        .set({
+          'x-user-id': 'customer-2',
+          'x-user-role': 'customer',
+          'x-user-name': 'Stranger',
+        })
+        .send({ message: 'Nice ticket' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /tickets/:id/comments retrieves comments for ticket owner', async () => {
+      m.store.support_ticket_comments.push({
+        id: 'c-1',
+        ticket_id: 't-123',
+        user_id: 'customer-1',
+        message: 'Hello',
+        created_at: '2026-06-01T00:00:00.000Z',
+      });
+
+      const res = await request(buildApp())
+        .get('/api/support/tickets/t-123/comments')
+        .set(CUSTOMER_HEADERS);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].message).toBe('Hello');
+  describe('GET /api/support/categories', () => {
+    it('returns 200 with categories array and labels map - no auth required', async () => {
+      const res = await request(buildApp())
+        .get('/api/support/categories');
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.categories)).toBe(true);
+      expect(res.body.categories).toContain('payment');
+      expect(res.body.categories).toContain('order');
+      expect(res.body.categories).toContain('technical');
+      expect(res.body.categories).toContain('general');
+      expect(res.body.categories).toContain('account');
+      expect(res.body.labels).toBeDefined();
+      expect(typeof res.body.labels.payment).toBe('string');
+    });
+
+    it('categories array contains no duplicates', async () => {
+      const res = await request(buildApp())
+        .get('/api/support/categories');
+
+      expect(res.status).toBe(200);
+      const unique = [...new Set(res.body.categories)];
+      expect(res.body.categories).toHaveLength(unique.length);
+    });
+
+    it('each category in the array has a corresponding label', async () => {
+      const res = await request(buildApp())
+        .get('/api/support/categories');
+
+      expect(res.status).toBe(200);
+      for (const cat of res.body.categories) {
+        expect(res.body.labels[cat]).toBeDefined();
+      }
     });
   });
 });

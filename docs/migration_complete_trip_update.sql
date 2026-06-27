@@ -1,11 +1,15 @@
--- Migration: Update complete_trip_tx(p_order_id UUID) to atomically complete the driver's active trip, its items/stops, and the order/timeline.
+-- Migration: Update complete_trip_tx(p_order_id UUID, p_otp_id UUID) to atomically
+-- consume the delivery OTP and complete the driver's active trip, its items/stops,
+-- and the order/timeline.
 -- Also add partial unique index on trips table to ensure a driver can have at most one active trip at any given time.
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_one_active_per_driver 
 ON trips (driver_id) 
 WHERE (status = 'active');
 
-CREATE OR REPLACE FUNCTION complete_trip_tx(p_order_id UUID)
+DROP FUNCTION IF EXISTS complete_trip_tx(UUID);
+
+CREATE OR REPLACE FUNCTION complete_trip_tx(p_order_id UUID, p_otp_id UUID)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -14,9 +18,10 @@ DECLARE
   v_order RECORD;
   v_trip_display_id TEXT;
   v_active_trip_count INT;
+  v_otp_updated INT;
 BEGIN
   -- Get the order details
-  SELECT * INTO v_order FROM orders WHERE id = p_order_id;
+  SELECT * INTO v_order FROM orders WHERE id = p_order_id FOR UPDATE;
   
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Order not found';
@@ -29,6 +34,19 @@ BEGIN
   -- Idempotency guard: check if the order status is already payment_released
   IF v_order.status = 'payment_released' THEN
     RETURN;
+  END IF;
+
+  UPDATE delivery_otps
+  SET verified = true,
+      verified_at = NOW()
+  WHERE id = p_otp_id
+    AND order_id = p_order_id
+    AND verified = false
+    AND expires_at >= NOW();
+
+  GET DIAGNOSTICS v_otp_updated = ROW_COUNT;
+  IF v_otp_updated <> 1 THEN
+    RAISE EXCEPTION 'Delivery OTP is invalid, expired, or already verified';
   END IF;
 
   -- Safe lookup for the driver's active trip
@@ -68,8 +86,7 @@ BEGIN
 
   -- Update order status to payment_released
   UPDATE orders
-  SET otp_verified = true,
-      status = 'payment_released',
+  SET status = 'payment_released',
       updated_at = NOW()
   WHERE id = p_order_id;
 
