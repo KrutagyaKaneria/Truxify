@@ -203,7 +203,8 @@ router.post('/events/batch', authenticate, userLimiter, validateBatchPayload(bat
  */
 router.get('/:id/events', authenticate, userLimiter, async (req, res) => {
   const tripId = req.params.id;
-  const { type } = req.query;
+  const { type, sort } = req.query;
+  const isAscending = sort !== 'desc';
 
   try {
     // 1. Fetch the trip to determine the driver
@@ -211,7 +212,7 @@ router.get('/:id/events', authenticate, userLimiter, async (req, res) => {
       .from('trip_events')
       .select('event_id, user_id, trip_id, event_type, event_timestamp, latitude, longitude, metadata, created_at')
       .eq('trip_id', tripId)
-      .order('event_timestamp', { ascending: true });
+      .order('event_timestamp', { ascending: isAscending });
 
     if (eventsErr) {
       return res.status(500).json({ error: 'Failed to fetch trip events.', details: eventsErr.message });
