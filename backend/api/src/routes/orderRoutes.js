@@ -793,8 +793,8 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
       `;
       try {
         await redisClient.eval(luaScript, 1, lockKey, lockValue);
-      } catch {
-        // Lock expiry will handle cleanup if the DEL fails
+      } catch (err) {
+        logger.warn('[orderRoutes] Failed to release accept-bid lock for key %s: %s', lockKey, err.message);
       }
     }
   }
