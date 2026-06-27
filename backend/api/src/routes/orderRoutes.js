@@ -768,6 +768,11 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
     });
 
     if (rpcErr) {
+      // Rollback the pre-update so the order is not left in an impossible state
+      await supabase
+        .from('orders')
+        .update({ escrow_status: 'pending', escrow_booking_id: null })
+        .eq('id', orderId);
       return res.status(500).json({
         error: 'Failed to accept bid atomically.',
         details: rpcErr.message,
