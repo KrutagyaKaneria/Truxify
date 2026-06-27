@@ -17,6 +17,7 @@ const trackingSubscriptions = new Map();
 
 // Cached Supabase Realtime channels keyed by orderUUID to avoid creating a new
 // channel per location ping. Reused across pings and cleaned up on disconnect.
+const MAX_LOCATION_CHANNELS = 1000;
 const locationChannels = new Map();
 
 // =====================================================================
@@ -569,27 +570,30 @@ export async function handleLocationPing(ws, data) {
   // Publish to Supabase Realtime channel driver-location:{orderId}
   // Reuse cached channel to avoid creating a new channel per ping.
   if (supabase && orderUUID) {
-    if (!locationChannels.has(orderUUID)) {
+    const existing = locationChannels.get(orderUUID);
+    if (existing) {
+      existing.lastUsed = Date.now();
+    } else if (trackingSubscriptions.has(orderDisplayId) || locationChannels.size < MAX_LOCATION_CHANNELS) {
       const channel = supabase.channel(`driver-location:${orderUUID}`);
       channel.subscribe();
       locationChannels.set(orderUUID, { channel, lastUsed: Date.now() });
-    } else {
-      locationChannels.get(orderUUID).lastUsed = Date.now();
     }
-    const { channel } = locationChannels.get(orderUUID);
-    channel.send({
-      type: 'broadcast',
-      event: 'location',
-      payload: {
-        orderId: orderUUID,
-        driverId: driver_id,
-        lat,
-        lng,
-        timestamp: new Date(serverNow).toISOString()
-      }
-    }).catch((err) => {
-      logger.error('Failed to broadcast realtime location to Supabase:', err.message);
-    });
+    const entry = locationChannels.get(orderUUID);
+    if (entry) {
+      entry.channel.send({
+        type: 'broadcast',
+        event: 'location',
+        payload: {
+          orderId: orderUUID,
+          driverId: driver_id,
+          lat,
+          lng,
+          timestamp: new Date(serverNow).toISOString()
+        }
+      }).catch((err) => {
+        logger.error('Failed to broadcast realtime location to Supabase:', err.message);
+      });
+    }
   }
 }
 
@@ -697,7 +701,8 @@ function scheduleNextFlush() {
   }, Math.max(BUFFER_FLUSH_INTERVAL_MS, flushBackoffMs));
 }
 
-const CHANNEL_STALE_MS = 10 * 60 * 1000;
+const CHANNEL_STALE_MS = 2 * 60 * 1000;
+const CHANNEL_CLEANUP_INTERVAL_MS = 60 * 1000;
 let channelCleanupInterval = null;
 
 function cleanupStaleChannels() {
@@ -710,12 +715,15 @@ function cleanupStaleChannels() {
       logger.info(`Cleaned up stale Supabase channel for order "${orderUUID}"`);
     }
   }
+  if (locationChannels.size > 0) {
+    logger.info(`[tracker] Active Supabase channels: ${locationChannels.size}`);
+  }
 }
 
 function startChannelCleanup() {
   if (channelCleanupInterval) return;
-  channelCleanupInterval = setInterval(cleanupStaleChannels, CHANNEL_STALE_MS);
-  logger.info('[tracker] Supabase channel cleanup interval started (10 min)');
+  channelCleanupInterval = setInterval(cleanupStaleChannels, CHANNEL_CLEANUP_INTERVAL_MS);
+  logger.info('[tracker] Supabase channel cleanup interval started (1 min)');
 }
 
 function loadRecoveryFile() {
