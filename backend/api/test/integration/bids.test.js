@@ -724,6 +724,7 @@ describe('Bid Routes', () => {
         id: 'order-1',
         customer_id: 'customer-1',
         order_display_id: 'OD1',
+        escrow_booking_id: 'escrow:OD1',
         escrow_status: 'funding',
       });
 
@@ -745,6 +746,7 @@ describe('Bid Routes', () => {
         id: 'order-1',
         customer_id: 'customer-1',
         order_display_id: 'OD1',
+        escrow_booking_id: 'escrow:OD1',
         escrow_status: 'funding',
       });
 
