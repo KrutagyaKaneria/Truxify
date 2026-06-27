@@ -238,7 +238,7 @@ router.put('/fcm-token', authenticate, userLimiter, async (req, res) => {
 // GET DRIVER STATEMENT
 router.get('/driver/statement', authenticate, requireRole(['driver']), userLimiter, validateQuery(driverStatementSchema), async (req, res) => {
   const userId = req.user.id;
-  const { start_date, end_date } = req.query;
+  const { start_date, end_date, sort_by } = req.query;
 
   try {
     let query = supabase
@@ -290,6 +290,12 @@ router.get('/driver/statement', authenticate, requireRole(['driver']), userLimit
         status: trip.status
       };
     });
+
+    if (sort_by === 'net_earnings') {
+      tripsList.sort((a, b) => b.net_earnings - a.net_earnings);
+    } else if (sort_by === 'base_freight') {
+      tripsList.sort((a, b) => b.base_freight - a.base_freight);
+    }
 
     res.json({
       summary: {
