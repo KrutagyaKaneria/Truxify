@@ -56,7 +56,8 @@ const defaultMockSupabase = {
   }),
 };
 
-const supabaseRef = { current: defaultMockSupabase };
+supabaseRef.current = defaultMockSupabase;
+const useMockSupabase = () => { supabaseRef.current = defaultMockSupabase };
 
 vi.mock('../../src/config/db.js', () => ({
   get supabase() {
