@@ -139,9 +139,15 @@ export async function recordDepositTx(bookingId, txHash) {
     return { error: 'Transaction is not a deposit call' };
   }
 
-  const [txBookingId] = decoded.args;
+  const [txBookingId, txCustomer] = decoded.args;
   if (txBookingId !== bookingId) {
     return { error: 'Transaction booking ID does not match' };
+  }
+
+  // Verify the on-chain sender matches the customer address in the deposit call.
+  // This prevents an attacker from submitting a deposit from any wallet.
+  if (tx.from.toLowerCase() !== txCustomer.toLowerCase()) {
+    return { error: 'Transaction sender does not match registered customer wallet' };
   }
 
   logger.info(`[escrow] deposit confirmed for booking ${bookingId} in block ${receipt.blockNumber}`);
@@ -217,7 +223,6 @@ export async function escrowRefund(orderDisplayId) {
  * Callers can persist the hash before waiting on the network.
  */
 export async function submitEscrowRefund(orderDisplayId) {
->>>>>>> cee50d84ee35ba421622671eb4cfdb880e46d016
   const bookingId = getEscrowBookingId(orderDisplayId);
 
   if (!escrowContract) {
@@ -227,11 +232,9 @@ export async function submitEscrowRefund(orderDisplayId) {
 
   const tx = await escrowContract.refundFunds(bookingId);
   logger.info(`[escrow] refundFunds tx submitted: ${tx.hash} for booking ${orderDisplayId}`);
-<<<<<<< HEAD
   const receipt = await tx.wait(1);
   logger.info(`[escrow] refundFunds confirmed for booking ${orderDisplayId} in block ${receipt.blockNumber}`);
   return { txHash: receipt.hash, bookingId };
-=======
   return {
     txHash: tx.hash,
     bookingId,
@@ -262,5 +265,4 @@ export async function confirmEscrowRefund(txHash) {
     throw new Error('Escrow refund transaction reverted or was not found.');
   }
   return receipt;
->>>>>>> cee50d84ee35ba421622671eb4cfdb880e46d016
 }
