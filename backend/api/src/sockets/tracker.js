@@ -395,7 +395,9 @@ export async function handleLocationPing(ws, data) {
       timestamp: new Date().toISOString(),
     }, 'Location spoofing attempt detected: Driver ID mismatch');
 
-    ws.close(4010, 'Spoofed location detected: Driver ID mismatch');
+    if (typeof ws.close === 'function') {
+      ws.close(4010, 'Spoofed location detected: Driver ID mismatch');
+    }
     return;
   }
 
