@@ -14,7 +14,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 //    service role key for admin operations only (bypasses RLS)
 // ============================================================================
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export let supabase = null;
