@@ -57,6 +57,24 @@ if (rpcUrl && contractAddress && relayerPrivateKey) {
 }
 
 /**
+ * Confirm a previously submitted refund transaction during a retry.
+ */
+export async function confirmEscrowRefund(txHash) {
+  if (!escrowContract) {
+    throw new Error('Escrow contract is not initialised.');
+  }
+  if (!ethers.isHexString(txHash, 32)) {
+    throw new Error('Invalid escrow refund transaction hash.');
+  }
+
+  const receipt = await escrowContract.runner.provider.waitForTransaction(txHash, 1);
+  if (!receipt || receipt.status === 0) {
+    throw new Error('Escrow refund transaction reverted or was not found.');
+  }
+  return receipt;
+}
+
+/**
  * Derive a deterministic booking ID from an order's display ID.
  * @param {string} orderDisplayId — e.g. "#FF20260521"
  * @returns {string} bytes32 hex string
@@ -217,10 +235,6 @@ export async function escrowRefund(orderDisplayId) {
   return { txHash: receipt.hash, bookingId: submitted.bookingId };
 }
 
-/**
- * Submit an escrow refund and return its hash before confirmation.
- * Callers can persist the hash before waiting on the network.
- */
 export async function submitEscrowRefund(orderDisplayId) {
   const bookingId = getEscrowBookingId(orderDisplayId);
 
