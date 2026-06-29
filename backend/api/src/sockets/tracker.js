@@ -335,7 +335,25 @@ export async function handleLocationPing(ws, data) {
   const { driver_id: payloadDriverId, speed, bearing, device_timestamp } = data;
 
   if (payloadDriverId && payloadDriverId !== driver_id) {
-    return ws.send(JSON.stringify({ error: 'Unauthorized: driver_id does not match authenticated WebSocket identity.' }));
+    const clientIp = ws.upgradeReq?.socket?.remoteAddress || 'unknown';
+    logger.error({
+      event: 'SPOOFED_LOCATION_ATTEMPT',
+      authenticatedDriver: driver_id,
+      attemptedDriver: payloadDriverId,
+      ip: clientIp,
+      timestamp: new Date().toISOString(),
+    }, 'Location spoofing attempt detected: Driver ID mismatch');
+
+    if (typeof ws.close === 'function') {
+      ws.close(4010, 'Spoofed location detected: Driver ID mismatch');
+    }
+    return;
+  }
+
+  // Also validate if payload provides driver_id that it must not be different
+  if (!payloadDriverId) {
+    // If not provided, add the authenticated driver_id to data
+    data.driver_id = driver_id;
   }
 
   const lat = data.lat !== undefined ? data.lat : data.latitude;
