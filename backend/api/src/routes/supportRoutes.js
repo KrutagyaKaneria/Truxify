@@ -79,7 +79,6 @@ const CATEGORY_SLA = {
   general: 48,
   account: 24,
 };
-
 const CATEGORY_DESCRIPTIONS = {
   payment: 'Issues related to payments, invoices, billing, and refunds.',
   order: 'Issues related to load bookings, orders, and shipment tracking.',
