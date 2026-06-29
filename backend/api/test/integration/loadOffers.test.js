@@ -170,6 +170,63 @@ describe('Load Offers Routes Integration Tests', () => {
       expect(m.calls.find(call => call.table === 'load_offers')).toBeUndefined();
     });
 
+    it('escapes LIKE metacharacters in pickup_location to prevent injection', async () => {
+      m.store.load_offers.push({
+        id: 'load-1',
+        pickup_address: 'Chennai Central',
+        drop_address: 'Bangalore City',
+        status: 'available',
+      });
+
+      const res = await request(buildApp())
+        .get(`/api/loads?pickup_location=${encodeURIComponent('%')}`)
+        .set(DRIVER_HEADERS);
+
+      expect(res.status).toBe(200);
+
+      const call = m.calls.find(c => c.table === 'load_offers' && c.mode === 'select');
+      const pickupFilter = call.filters.find(f => f.col === 'pickup_address');
+      expect(pickupFilter.val).toBe('%\\%%');
+    });
+
+    it('escapes LIKE underscore in pickup_location', async () => {
+      m.store.load_offers.push({
+        id: 'load-1',
+        pickup_address: 'Chennai Central',
+        status: 'available',
+      });
+
+      const res = await request(buildApp())
+        .get(`/api/loads?pickup_location=${encodeURIComponent('_')}`)
+        .set(DRIVER_HEADERS);
+
+      expect(res.status).toBe(200);
+
+      const call = m.calls.find(c => c.table === 'load_offers' && c.mode === 'select');
+      const pickupFilter = call.filters.find(f => f.col === 'pickup_address');
+      expect(pickupFilter.val).toBe('%\\_%');
+    });
+
+    it('rejects pickup_location longer than 200 characters', async () => {
+      const longString = 'A'.repeat(201);
+      const res = await request(buildApp())
+        .get(`/api/loads?pickup_location=${longString}`)
+        .set(DRIVER_HEADERS);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('pickup_location too long (max 200 chars)');
+    });
+
+    it('rejects destination longer than 200 characters', async () => {
+      const longString = 'B'.repeat(201);
+      const res = await request(buildApp())
+        .get(`/api/loads?destination=${longString}`)
+        .set(DRIVER_HEADERS);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('destination too long (max 200 chars)');
+    });
+
     it('rejects repeated numeric filters instead of accepting an array', async () => {
       const res = await request(buildApp())
         .get('/api/loads?min_price=100&min_price=200')
