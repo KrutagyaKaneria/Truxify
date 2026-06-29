@@ -997,7 +997,7 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
     }
 
     // Call complete_trip_tx RPC to atomically update trip, driver stats, wallet, earnings, order status, and timeline.
-    const { error: rpcErr } = await supabase.rpc('complete_trip_tx', {
+    const { data: tripData, error: rpcErr } = await supabase.rpc('complete_trip_tx', {
       p_order_id: orderId,
       p_otp_id: otpRecord.id,
     });
@@ -1074,15 +1074,17 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
           });
         }
 
-        if (order.driver_id) {
+        const driverId = tripData?.driver_id || order.driver_id;
+        const displayId = tripData?.order_display_id || order.order_display_id;
+        if (driverId) {
           const { error: walletErr } = await supabase
             .from('wallet_transactions')
             .update({
               tx_hash: txHash,
-              description: `Escrow payout for ${order.order_display_id}`,
+              description: `Escrow payout for ${displayId}`,
             })
-            .eq('driver_id', order.driver_id)
-            .eq('order_display_id', order.order_display_id)
+            .eq('driver_id', driverId)
+            .eq('order_display_id', displayId)
             .eq('txn_type', 'credit');
 
           if (walletErr) {
