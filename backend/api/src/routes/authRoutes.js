@@ -28,12 +28,13 @@ router.post('/logout', authenticate, async (req, res) => {
   // ── 1. Invalidate Redis profile cache ──────────────────────────────
   // Bounded timeout prevents Redis hangs from blocking the logout response.
   try {
+    let redisTimer;
     await Promise.race([
       invalidateCachedProfile(uid),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Redis invalidation timeout')), 2000)
-      ),
-    ]);
+      new Promise((_, reject) => {
+        redisTimer = setTimeout(() => reject(new Error('Redis invalidation timeout')), 2000);
+      }),
+    ]).finally(() => clearTimeout(redisTimer));
   } catch (err) {
     logger.warn(`[auth/logout] Cache invalidation skipped for uid=${uid}: ${err?.message}`);
   }
@@ -42,12 +43,13 @@ router.post('/logout', authenticate, async (req, res) => {
   // Bounded timeout prevents Firebase hangs from blocking the logout response.
   if (uid && firebaseAdmin) {
     try {
+      let fbTimer;
       await Promise.race([
         firebaseAdmin.auth().revokeRefreshTokens(uid),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Firebase revocation timeout')), 3000)
-        ),
-      ]);
+        new Promise((_, reject) => {
+          fbTimer = setTimeout(() => reject(new Error('Firebase revocation timeout')), 3000);
+        }),
+      ]).finally(() => clearTimeout(fbTimer));
     } catch (err) {
       logger.error(`[auth/logout] Firebase token revocation failed for uid=${uid}: ${err?.message}`);
     }
