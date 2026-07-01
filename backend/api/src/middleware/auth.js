@@ -192,7 +192,7 @@ export async function authenticate(req, res, next) {
       // Clamp the cache lifetime to the token's remaining validity so a cached
       // profile can never outlive the access token that authorised it.
       const nowSeconds = Math.floor(Date.now() / 1000);
-      const ttlSeconds = Number.isFinite(decoded?.exp)
+      const ttlSeconds = isSupabaseToken && Number.isFinite(decoded?.exp)
         ? Math.min(TTL_SECONDS, decoded.exp - nowSeconds)
         : TTL_SECONDS;
       void setCachedSupabaseProfile(supabaseUserId, req.user, ttlSeconds);
