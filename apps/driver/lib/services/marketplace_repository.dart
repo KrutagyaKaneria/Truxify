@@ -97,9 +97,11 @@ class MarketplaceRepository {
       throw StateError('Failed to fetch driver bids');
     }
 
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final bids = decoded['bids'] as List? ?? [];
-    return bids.cast<Map<String, dynamic>>().map(DriverBid.fromJson).toList(growable: false);
+    final decoded = jsonDecode(response.body);
+    final body = decoded is Map<String, dynamic>
+        ? decoded['bids'] as List? ?? const []
+        : decoded as List;
+    return body.cast<Map<String, dynamic>>().map(DriverBid.fromJson).toList(growable: false);
   }
 
   LoadOffer _mapLoadOffer(Map<String, dynamic> row) {
