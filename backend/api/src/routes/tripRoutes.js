@@ -71,6 +71,52 @@ const validateBatchPayload = (schema) => (req, res, next) => {
   }
 };
 
+async function verifyTripIdsBelongToUser(tripIds, user) {
+  const uniqueTripIds = [...new Set(tripIds.filter(Boolean))];
+  if (uniqueTripIds.length === 0) return { ok: true };
+
+  const [ordersResult, tripsResult] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('id, driver_id, customer_id')
+      .in('id', uniqueTripIds),
+    supabase
+      .from('trips')
+      .select('id, driver_id')
+      .in('id', uniqueTripIds),
+  ]);
+
+  if (ordersResult.error) {
+    return { ok: false, status: 500, error: 'Failed to verify order ownership.' };
+  }
+  if (tripsResult.error) {
+    return { ok: false, status: 500, error: 'Failed to verify trip ownership.' };
+  }
+
+  const orderById = new Map((ordersResult.data || []).map(order => [order.id, order]));
+  const tripById = new Map((tripsResult.data || []).map(trip => [trip.id, trip]));
+
+  for (const tripId of uniqueTripIds) {
+    const order = orderById.get(tripId);
+    const trip = tripById.get(tripId);
+
+    if (!order && !trip) {
+      return { ok: false, status: 404, error: `Trip not found: ${tripId}` };
+    }
+
+    if (user.role === 'admin') continue;
+
+    const ownsOrder = order && (order.driver_id === user.id || order.customer_id === user.id);
+    const ownsTrip = trip && trip.driver_id === user.id;
+
+    if (!ownsOrder && !ownsTrip) {
+      return { ok: false, status: 403, error: `Access denied for trip: ${tripId}` };
+    }
+  }
+
+  return { ok: true };
+}
+
 // ============================================================================
 // 📡 OFFLINE SYNC ENDPOINT: BATCH EVENT INGESTION
 // ============================================================================
@@ -115,6 +161,11 @@ router.post('/events/batch', authenticate, userLimiter, validateBatchPayload(bat
           details: result.error.issues,
         });
       }
+    }
+
+    const ownershipCheck = await verifyTripIdsBelongToUser(events.map(event => event.trip_id), req.user);
+    if (!ownershipCheck.ok) {
+      return res.status(ownershipCheck.status).json({ error: ownershipCheck.error });
     }
 
     const recordsToInsert = events.map(event => {
