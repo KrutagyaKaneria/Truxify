@@ -1630,7 +1630,23 @@ router.get('/:id/route', authenticate, userLimiter, telemetryLimiter, requireRol
     }
 
     if (!order.driver_id) {
-      return res.status(404).json({ error: 'No driver assigned to this order.' });
+      // No driver assigned yet — return a straight-line pickup-to-drop route
+      // so the tracking screen shows a route before driver assignment.
+      const originLat = Number(order.pickup_lat);
+      const originLng = Number(order.pickup_lng);
+      const destLat = Number(order.drop_lat);
+      const destLng = Number(order.drop_lng);
+
+      if (!Number.isFinite(originLat) || !Number.isFinite(originLng) ||
+          !Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+        return res.status(500).json({ error: 'Order has invalid coordinates.' });
+      }
+
+      const feature = buildStraightLineGeometry({ originLat, originLng, destLat, destLng });
+      if (!feature) {
+        return res.status(500).json({ error: 'Failed to compute route.' });
+      }
+      return res.json({ ...feature, fallback: true });
     }
 
     // 2. Query MongoDB telemetry collection for the driver's latest position
