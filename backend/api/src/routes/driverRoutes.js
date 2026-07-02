@@ -250,16 +250,6 @@ router.get('/trips', authenticate, userLimiter, requireRole(['driver']), async (
   const { status } = req.query;
   const pageParam = req.query.page ?? '1';
   const limitParam = req.query.limit ?? '10';
-  const page = typeof pageParam === 'string' ? Number(pageParam) : NaN;
-  const limit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
-
-  if (!Number.isInteger(page) || page < 1) {
-    return res.status(400).json({ error: 'page must be greater than or equal to 1' });
-  }
-
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    return res.status(400).json({ error: 'limit must be between 1 and 100' });
-  }
   const rawPage = req.query.page;
   const rawLimit = req.query.limit;
   const parsedPage = parseInt(rawPage, 10);
