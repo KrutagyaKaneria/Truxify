@@ -44,6 +44,7 @@ const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || '15', 10);
 const OTP_MAX_FAILED_ATTEMPTS = parseInt(process.env.OTP_MAX_FAILED_ATTEMPTS || '5', 10);
 const OTP_LOCKOUT_MINUTES = parseInt(process.env.OTP_LOCKOUT_MINUTES || '30', 10);
 const IN_MEMORY_OTP_MAP_MAX_SIZE = parseInt(process.env.IN_MEMORY_OTP_MAP_MAX_SIZE || '10000', 10);
+const DELIVERY_OTP_READY_STATUSES = new Set(['arriving']);
 
 const inMemoryOtpFailedAttempts = new Map();
 
@@ -425,8 +426,18 @@ router.get('/load-offers/en-route', authenticate, userLimiter, async (req, res) 
 // ============================================================================
 router.get('/history', authenticate, userLimiter, requireRole(['customer']), async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const rawPage = req.query.page;
+    const rawLimit = req.query.limit;
+    const parsedPage = parseInt(rawPage, 10);
+    const parsedLimit = parseInt(rawLimit, 10);
+    if (rawPage !== undefined && (!Number.isInteger(parsedPage) || parsedPage < 1)) {
+      return res.status(400).json({ error: 'page must be a positive integer' });
+    }
+    if (rawLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit < 1)) {
+      return res.status(400).json({ error: 'limit must be a positive integer' });
+    }
+    const page = parsedPage || 1;
+    const limit = Math.min(100, Math.max(1, parsedLimit || 10));
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -990,6 +1001,9 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       .maybeSingle();
     if (orderErr || !order) return res.status(404).json({ error: 'Order not found.' });
     if (order.driver_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You are not assigned to this order.' });
+    if (!DELIVERY_OTP_READY_STATUSES.has(order.status)) {
+      return res.status(409).json({ error: 'Delivery OTP can only be verified after the shipment reaches the delivery location.' });
+    }
 
     const otpRecord = await getActiveDeliveryOtp(orderId);
     if (!otpRecord) {
@@ -1026,6 +1040,30 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       return res.status(500).json({ error: 'Failed to verify OTP.', details: updateErr.message });
     }
 
+    // Release escrow before completing the trip in the database. If the
+    // on-chain call fails, the OTP stays unconsumed and the driver can retry.
+    let escrowReleased = false;
+    if (order.escrow_status === 'funded' || order.escrow_status === 'release_failed') {
+      try {
+        const releaseResult = await releaseEscrowFunds(order.order_display_id);
+        if (releaseResult.txHash) {
+          escrowReleased = true;
+        } else if (releaseResult.alreadyReleased) {
+          escrowReleased = true;
+        } else {
+          throw new Error('Escrow release returned no transaction hash');
+        }
+      } catch (releaseErr) {
+        logger.error('[escrow] Pre-completion release failed for order', orderId, ':', releaseErr.message);
+        return res.status(503).json({
+          error: 'Blockchain escrow release failed. Payment cannot be processed. Please retry.',
+          retryable: true,
+        });
+      }
+    } else {
+      logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) - skipping on-chain release.`);
+    }
+
     // Call complete_trip_tx RPC to atomically update trip, driver stats, wallet, earnings, order status, and timeline.
     const { data: tripData, error: rpcErr } = await supabase.rpc('complete_trip_tx', {
       p_order_id: orderId,
@@ -1055,30 +1093,6 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       return res.status(409).json({
         error: 'Order status changed during processing. Payment was not released.',
       });
-    }
-
-    // Blockchain pre-check: release escrow funds BEFORE consuming the OTP.
-    // If the on-chain call fails, the OTP stays unconsumed and the driver can retry.
-    let escrowReleased = false;
-    if (verifiedOrder.escrow_status === 'funded' || verifiedOrder.escrow_status === 'release_failed') {
-      try {
-        const releaseResult = await releaseEscrowFunds(order.order_display_id);
-        if (releaseResult.txHash) {
-          escrowReleased = true;
-        } else if (releaseResult.alreadyReleased) {
-          escrowReleased = true;
-        } else {
-          throw new Error('Escrow release returned no transaction hash');
-        }
-      } catch (releaseErr) {
-        logger.error('[escrow] Pre-OTP release failed for order', orderId, ':', releaseErr.message);
-        return res.status(503).json({
-          error: 'Blockchain escrow release failed. Payment cannot be processed. Please retry.',
-          retryable: true,
-        });
-      }
-    } else {
-      logger.info(`[escrow] Escrow not funded (status: ${verifiedOrder.escrow_status}) — skipping on-chain release.`);
     }
 
     // OTP is only consumed after the RPC and blockchain release succeed — if either fails the driver can retry
@@ -1139,6 +1153,9 @@ router.post('/:id/resend-otp', authenticate, userLimiter, resendOtpLimiter, requ
     if (terminalStatuses.includes(order.status)) {
       return res.status(400).json({ error: 'Cannot resend OTP for a completed or cancelled order.' });
     }
+    if (!DELIVERY_OTP_READY_STATUSES.has(order.status)) {
+      return res.status(409).json({ error: 'Delivery OTP can only be sent after the shipment reaches the delivery location.' });
+    }
 
     const otp = crypto.randomInt(100000, 1000000).toString();
     const stored = await storeDeliveryOtp(orderId, otp, OTP_TTL_MINUTES);
@@ -1177,9 +1194,12 @@ router.put('/:id/change-drop', authenticate, userLimiter, requireRole(['customer
     if (orderErr) return res.status(500).json({ error: 'Failed to fetch order.', details: orderErr.message });
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     if (order.customer_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
-    if (order.escrow_status === 'funded') {
+    if (order.escrow_status === 'funded' || order.status !== 'pending') {
+      const reason = order.escrow_status === 'funded'
+        ? 'after escrow has been funded'
+        : `after order status is '${order.status}'`;
       return res.status(409).json({
-        error: 'Drop location cannot be changed after escrow has been funded.',
+        error: `Drop location cannot be changed ${reason}.`,
         recovery: 'Cancel this order to receive a refund, then rebook with the correct destination.',
       });
     }
@@ -1489,12 +1509,9 @@ router.post('/:id/confirm-deposit', authenticate, userLimiter, requireRole(['cus
     if (order.escrow_status !== 'funding') {
       return res.status(400).json({ error: 'Order is not in funding state' });
     }
-    if (order.customer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
-    }
 
     const bookingId = order.escrow_booking_id || `escrow:${order.order_display_id}`;
-    const result = await recordDepositTx(bookingId, txHash);
+    const result = await recordDepositTx(bookingId, txHash, customerWallet);
 
     if (result.error) return res.status(422).json({ error: result.error });
 
@@ -1535,15 +1552,24 @@ router.post('/predict-demand', authenticate, userLimiter, requireRole(['customer
 // ============================================================================
 // 19. GET DRIVER LOCATION (CUSTOMER OR DRIVER)
 // ============================================================================
-router.get('/:id/driver-location', authenticate, userLimiter, telemetryLimiter, requireRole(['customer', 'driver']), validateParams(uuidParamSchema), async (req, res) => {
+router.get('/:id/driver-location', authenticate, userLimiter, telemetryLimiter, requireRole(['customer', 'driver']), validateParams(paramIdSchema), async (req, res) => {
   const orderId = req.params.id;
   try {
     // 1. Resolve order and check authentication / authorization
-    const { data: order, error: orderErr } = await supabase
+    let { data: order, error: orderErr } = await supabase
       .from('orders')
       .select('id, customer_id, driver_id, status')
       .eq('id', orderId)
       .maybeSingle();
+    if (!order && !orderErr) {
+      const result = await supabase
+        .from('orders')
+        .select('id, customer_id, driver_id, status')
+        .eq('order_display_id', orderId)
+        .maybeSingle();
+      order = result.data;
+      orderErr = result.error;
+    }
 
     if (orderErr) {
       return res.status(500).json({ error: 'Failed to fetch order details.' });
@@ -1630,7 +1656,23 @@ router.get('/:id/route', authenticate, userLimiter, telemetryLimiter, requireRol
     }
 
     if (!order.driver_id) {
-      return res.status(404).json({ error: 'No driver assigned to this order.' });
+      // No driver assigned yet — return a straight-line pickup-to-drop route
+      // so the tracking screen shows a route before driver assignment.
+      const originLat = Number(order.pickup_lat);
+      const originLng = Number(order.pickup_lng);
+      const destLat = Number(order.drop_lat);
+      const destLng = Number(order.drop_lng);
+
+      if (!Number.isFinite(originLat) || !Number.isFinite(originLng) ||
+          !Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+        return res.status(500).json({ error: 'Order has invalid coordinates.' });
+      }
+
+      const feature = buildStraightLineGeometry({ originLat, originLng, destLat, destLng });
+      if (!feature) {
+        return res.status(500).json({ error: 'Failed to compute route.' });
+      }
+      return res.json({ ...feature, fallback: true });
     }
 
     // 2. Query MongoDB telemetry collection for the driver's latest position
