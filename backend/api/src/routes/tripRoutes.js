@@ -210,6 +210,41 @@ router.get('/:id/events', authenticate, userLimiter, async (req, res) => {
   const isAscending = sort !== 'desc';
 
   try {
+    const [orderResult, tripResult] = await Promise.all([
+      supabase
+        .from('orders')
+        .select('id, driver_id, customer_id')
+        .eq('id', tripId)
+        .maybeSingle(),
+      supabase
+        .from('trips')
+        .select('id, driver_id')
+        .eq('id', tripId)
+        .maybeSingle(),
+    ]);
+
+    if (orderResult.error) {
+      return res.status(500).json({ error: 'Failed to verify order ownership.', details: orderResult.error.message });
+    }
+    if (tripResult.error) {
+      return res.status(500).json({ error: 'Failed to verify trip ownership.', details: tripResult.error.message });
+    }
+
+    const order = orderResult.data;
+    const trip = tripResult.data;
+    if (!order && !trip) {
+      return res.status(404).json({ error: 'Trip not found.' });
+    }
+
+    if (req.user.role !== 'admin') {
+      const isOrderDriver = order?.driver_id === req.user.id;
+      const isOrderCustomer = order?.customer_id === req.user.id;
+      const isTripDriver = trip?.driver_id === req.user.id;
+      if (!isOrderDriver && !isOrderCustomer && !isTripDriver) {
+        return res.status(403).json({ error: 'Access Denied: You are not authorised to view events for this trip.' });
+      }
+    }
+
     // 1. Fetch the trip to determine the driver
     const { data: events, error: eventsErr } = await supabase
       .from('trip_events')
@@ -222,54 +257,7 @@ router.get('/:id/events', authenticate, userLimiter, async (req, res) => {
     }
 
     if (!events || events.length === 0) {
-      // Check if the trip even exists
-      const { data: existingEvent } = await supabase
-        .from('trip_events')
-        .select('trip_id')
-        .eq('trip_id', tripId)
-        .limit(1)
-        .maybeSingle();
-
-      // If no events found at all, check via orders whether this trip/order exists
-      const { data: order } = await supabase
-        .from('orders')
-        .select('id, driver_id, customer_id')
-        .eq('id', tripId)
-        .maybeSingle();
-
-      if (!order && !existingEvent) {
-        return res.status(404).json({ error: 'Trip not found.' });
-      }
-
-      // Authorisation check even for empty trips
-      if (req.user.role !== 'admin') {
-        const isDriver = order?.driver_id === req.user.id;
-        const isCustomer = order?.customer_id === req.user.id;
-        if (!isDriver && !isCustomer) {
-          return res.status(403).json({ error: 'Access Denied: You are not authorised to view events for this trip.' });
-        }
-      }
-
       return res.json({ trip_id: tripId, events: [] });
-    }
-
-    // 2. Determine trip's driver from the first event's user_id (the driver who uploaded events)
-    const driverUserId = events[0]?.user_id;
-
-    // 3. Also look up the linked order to check customer access
-    const { data: order } = await supabase
-      .from('orders')
-      .select('id, driver_id, customer_id')
-      .eq('id', tripId)
-      .maybeSingle();
-
-    // 4. Access control
-    if (req.user.role !== 'admin') {
-      const isDriver = driverUserId === req.user.id || order?.driver_id === req.user.id;
-      const isCustomer = order?.customer_id === req.user.id;
-      if (!isDriver && !isCustomer) {
-        return res.status(403).json({ error: 'Access Denied: You are not authorised to view events for this trip.' });
-      }
     }
 
     // 5. Optional type filter
