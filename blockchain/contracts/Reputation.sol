@@ -38,8 +38,14 @@ contract Reputation {
 
     function increaseReputation(address driver, uint256 points) external onlyRelayer {
         require(driver != address(0), "Invalid driver");
-        uint256 newScore = scores[driver] + points;
-        scores[driver] = newScore > MAX_REPUTATION ? MAX_REPUTATION : newScore;
+        uint256 current = scores[driver];
+        if (current >= MAX_REPUTATION) return;
+        uint256 newScore = current + points;
+        if (newScore < current || newScore > MAX_REPUTATION) {
+            scores[driver] = MAX_REPUTATION;
+        } else {
+            scores[driver] = newScore;
+        }
         emit ReputationIncreased(driver, points, scores[driver]);
     }
 

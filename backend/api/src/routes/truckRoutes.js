@@ -2,10 +2,8 @@ import express from 'express';
 import { supabase } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { userLimiter } from '../middleware/rateLimiter.js';
-import { validateParams } from '../middleware/validate.js';
-import { paramIdSchema } from '../validation/requestSchemas.js';
-import { validateBody } from '../middleware/validate.js';
-import { registerTruckSchema } from '../validation/requestSchemas.js';
+import { validateParams, validateBody } from '../middleware/validate.js';
+import { paramIdSchema, uuidParamSchema, registerTruckSchema } from '../validation/requestSchemas.js';
 import { getRouteEstimate } from '../services/osrm.js';
 import { computeOrderPricing } from '../lib/pricing.js';
 import { predictPrice } from '../services/ml.js';
@@ -68,12 +66,26 @@ router.post('/', authenticate, requireRole(['driver']), userLimiter, validateBod
  * Returns all trucks owned by the authenticated driver.
  */
 router.get('/', authenticate, requireRole(['driver']), userLimiter, async (req, res) => {
+  const { name } = req.query;
+  const { min_capacity, max_capacity } = req.query;
+
   try {
-    const { data: trucks, error } = await supabase
+    let query = supabase
       .from('trucks')
       .select('id, name, number_plate, max_capacity_tons, created_at')
-      .eq('owner_id', req.user.id)
-      .order('created_at', { ascending: false });
+      .eq('owner_id', req.user.id);
+
+    if (name) {
+      query = query.ilike('name', `%${name}%`);
+    }
+    if (min_capacity) {
+      query = query.gte('max_capacity_tons', Number(min_capacity));
+    }
+    if (max_capacity) {
+      query = query.lte('max_capacity_tons', Number(max_capacity));
+    }
+
+    const { data: trucks, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch trucks.', details: error.message });
@@ -111,6 +123,13 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
 
   if ([numPickupLat, numPickupLng, numDropLat, numDropLng, numWeightTonnes].some(isNaN)) {
     return res.status(400).json({ error: 'Invalid numeric parameters' });
+  }
+
+  if (numPickupLat < -90 || numPickupLat > 90 || numDropLat < -90 || numDropLat > 90) {
+    return res.status(400).json({ error: 'Latitude must be between -90 and 90' });
+  }
+  if (numPickupLng < -180 || numPickupLng > 180 || numDropLng < -180 || numDropLng > 180) {
+    return res.status(400).json({ error: 'Longitude must be between -180 and 180' });
   }
 
   if (numWeightTonnes <= 0 || numWeightTonnes > 50) {
@@ -222,7 +241,7 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
 });
 
 // GET TRUCK NUMBER PLATE BY ID
-router.get('/:id/number', authenticate, userLimiter, validateParams(paramIdSchema), async (req, res) => {
+router.get('/:id/number', authenticate, userLimiter, validateParams(uuidParamSchema), async (req, res) => {
   try {
     const { data: truck, error } = await supabase
       .from('trucks')

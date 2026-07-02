@@ -19,6 +19,7 @@ DECLARE
   v_trip_display_id TEXT;
   v_active_trip_count INT;
   v_otp_updated INT;
+  v_updated_count INT;
 BEGIN
   -- Get the order details
   SELECT * INTO v_order FROM orders WHERE id = p_order_id FOR UPDATE;
@@ -36,17 +37,9 @@ BEGIN
     RETURN;
   END IF;
 
-  UPDATE delivery_otps
-  SET verified = true,
-      verified_at = NOW()
-  WHERE id = p_otp_id
-    AND order_id = p_order_id
-    AND verified = false
-    AND expires_at >= NOW();
-
-  GET DIAGNOSTICS v_otp_updated = ROW_COUNT;
-  IF v_otp_updated <> 1 THEN
-    RAISE EXCEPTION 'Delivery OTP is invalid, expired, or already verified';
+  -- Check if the order was cancelled
+  IF v_order.status = 'cancelled' THEN
+    RAISE EXCEPTION 'Order has been cancelled — cannot complete trip';
   END IF;
 
   -- Safe lookup for the driver's active trip
@@ -84,11 +77,20 @@ BEGIN
     WHERE trip_display_id = v_trip_display_id;
   END IF;
 
-  -- Update order status to payment_released
+  -- Update order status to payment_released with defensive WHERE guards
   UPDATE orders
-  SET status = 'payment_released',
+  SET otp_verified = true,
+      status = 'payment_released',
       updated_at = NOW()
-  WHERE id = p_order_id;
+  WHERE id = p_order_id
+    AND status != 'cancelled'
+    AND status != 'payment_released';
+
+  -- Verify the update actually affected a row
+  GET DIAGNOSTICS v_updated_count = ROW_COUNT;
+  IF v_updated_count = 0 THEN
+    RAISE EXCEPTION 'Order status changed during processing — possible concurrent cancellation';
+  END IF;
 
   -- Update order timeline milestone 'Delivered'
   UPDATE order_timeline

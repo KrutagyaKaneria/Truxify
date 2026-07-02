@@ -64,6 +64,8 @@ function checkPolygon() {
 }
 
 const CRITICAL_UNHEALTHY = new Set(['failed', 'not_configured']);
+// Optional services treat 'not_configured' as healthy — only actual failures are critical.
+const CRITICAL_UNHEALTHY_OPTIONAL = new Set(['failed']);
 
 // GET /api/health — full dependency check; returns 503 when a critical service fails
 router.get('/', healthLimiter, async (req, res) => {
@@ -82,7 +84,9 @@ router.get('/', healthLimiter, async (req, res) => {
   };
 
   const criticalFailed =
-    CRITICAL_UNHEALTHY.has(supabaseStatus) || CRITICAL_UNHEALTHY.has(mongoStatus);
+    CRITICAL_UNHEALTHY.has(supabaseStatus) ||
+    CRITICAL_UNHEALTHY_OPTIONAL.has(mongoStatus) ||
+    CRITICAL_UNHEALTHY_OPTIONAL.has(redisStatus);
 
   const status = criticalFailed ? 'degraded' : 'ok';
   const httpStatus = criticalFailed ? 503 : 200;

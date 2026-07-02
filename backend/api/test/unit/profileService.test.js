@@ -21,54 +21,63 @@ vi.mock('../../src/middleware/logger.js', () => ({
 const mockEqProfileMaybeSingle = vi.fn();
 const mockEqStatsMaybeSingle = vi.fn();
 const mockEqDriverMaybeSingle = vi.fn();
+const supabaseRef = vi.hoisted(() => ({ current: null }));
+
+const defaultMockSupabase = {
+  from: vi.fn((table) => {
+    if (table === 'profiles') {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: mockEqProfileMaybeSingle,
+          })),
+        })),
+      };
+    }
+    if (table === 'customer_stats') {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: mockEqStatsMaybeSingle,
+          })),
+        })),
+      };
+    }
+    if (table === 'driver_details') {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            maybeSingle: mockEqDriverMaybeSingle,
+          })),
+        })),
+      };
+    }
+    return { select: vi.fn() };
+  }),
+};
 
 vi.mock('../../src/config/db.js', () => ({
-  supabase: {
-    from: vi.fn((table) => {
-      if (table === 'profiles') {
-        return {
-          select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              maybeSingle: mockEqProfileMaybeSingle,
-            })),
-          })),
-        };
-      }
-      if (table === 'customer_stats') {
-        return {
-          select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              maybeSingle: mockEqStatsMaybeSingle,
-            })),
-          })),
-        };
-      }
-      if (table === 'driver_details') {
-        return {
-          select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              maybeSingle: mockEqDriverMaybeSingle,
-            })),
-          })),
-        };
-      }
-      return { select: vi.fn() };
-    }),
+  get supabase() {
+    return supabaseRef.current;
   },
 }));
+
+const useMockSupabase = () => { supabaseRef.current = defaultMockSupabase; };
 
 import { getProfile, getCustomerStats, getDriverDetails } from '../../src/services/profileService.js';
 
 describe('getProfile', () => {
   beforeEach(() => {
-    supabaseRef.current = null;
+    supabaseRef.current = { ...defaultMockSupabase };
   });
 
   it('throws when supabase is not configured', async () => {
+    supabaseRef.current = null;
     await expect(getProfile('user-123')).rejects.toThrow('Supabase client not configured');
   });
 
   it('returns profile data on successful query', async () => {
+    useMockSupabase();
     const mockData = { id: 'user-123', firebase_uid: 'fb-uid', role: 'driver', full_name: 'John', phone: '+919876543210' };
     mockEqProfileMaybeSingle.mockResolvedValueOnce({ data: mockData, error: null });
     const result = await getProfile('user-123');
@@ -76,6 +85,7 @@ describe('getProfile', () => {
   });
 
   it('throws when supabase query returns an error', async () => {
+    useMockSupabase();
     mockEqProfileMaybeSingle.mockResolvedValueOnce({ data: null, error: { message: 'Permission denied' } });
     await expect(getProfile('user-123')).rejects.toThrow('Permission denied');
   });
@@ -94,14 +104,16 @@ describe('getProfile', () => {
 
 describe('getCustomerStats', () => {
   beforeEach(() => {
-    supabaseRef.current = null;
+    supabaseRef.current = { ...defaultMockSupabase };
   });
 
   it('throws when supabase is not configured', async () => {
+    supabaseRef.current = null;
     await expect(getCustomerStats('user-123')).rejects.toThrow('Supabase client not configured');
   });
 
   it('returns customer stats on successful query', async () => {
+    useMockSupabase();
     const mockData = { total_orders: 42, total_saved: 8, co2_reduced_kg: 156.5 };
     mockEqStatsMaybeSingle.mockResolvedValueOnce({ data: mockData, error: null });
     const result = await getCustomerStats('user-456');
@@ -109,6 +121,7 @@ describe('getCustomerStats', () => {
   });
 
   it('throws when supabase query returns an error', async () => {
+    useMockSupabase();
     mockEqStatsMaybeSingle.mockResolvedValueOnce({ data: null, error: { message: 'Row not found' } });
     await expect(getCustomerStats('user-456')).rejects.toThrow('Row not found');
   });
@@ -127,14 +140,16 @@ describe('getCustomerStats', () => {
 
 describe('getDriverDetails', () => {
   beforeEach(() => {
-    supabaseRef.current = null;
+    supabaseRef.current = { ...defaultMockSupabase };
   });
 
   it('throws when supabase is not configured', async () => {
+    supabaseRef.current = null;
     await expect(getDriverDetails('driver-789')).rejects.toThrow('Supabase client not configured');
   });
 
   it('returns driver details on successful query', async () => {
+    useMockSupabase();
     const mockData = {
       truck_id: 'truck-01', rating: 4.7, total_trips: 150, completion_rate: 0.95,
       is_online: true, wallet_confirmed: 500000, wallet_pending: 12000, wallet_total: 512000,
@@ -145,6 +160,7 @@ describe('getDriverDetails', () => {
   });
 
   it('throws when supabase query returns an error', async () => {
+    useMockSupabase();
     mockEqDriverMaybeSingle.mockResolvedValueOnce({ data: null, error: { message: 'Driver profile not found' } });
     await expect(getDriverDetails('driver-789')).rejects.toThrow('Driver profile not found');
   });

@@ -52,15 +52,16 @@ export const createOrderSchema = z.object({
   special_requirements: z.string().max(500).optional().nullable(),
   payment_method_id: z.string().optional(),
   upi_id: z.string().regex(upiRegex, "Invalid UPI ID format").optional().or(z.literal('')).nullable(),
-  base_freight: z.any().optional(),
-  toll_estimate: z.any().optional(),
-  platform_fee: z.any().optional(),
-  total_amount: z.any().optional(),
-  estimated_price: z.any().optional(),
+  // Server-computed fields — reject any client-supplied value to prevent price manipulation.
+  base_freight: z.never().optional(),
+  toll_estimate: z.never().optional(),
+  platform_fee: z.never().optional(),
+  total_amount: z.never().optional(),
+  estimated_price: z.never().optional(),
 }).strict();
 
 export const paramIdSchema = z.object({
-  id: uuidSchema
+  id: uuidSchema.or(z.string().min(1, "ID is required"))
 });
 
 // Strict UUID-only param schema for routes whose :id maps directly to orders.id (a uuid).
@@ -110,7 +111,7 @@ export const predictDemandSchema = z.object({
 }).strict();
 
 export const updateMilestoneSchema = z.object({
-  milestone: z.enum(['Truck Assigned', 'En Route to Pickup', 'Arrived at Pickup', 'Goods Loaded', 'In Transit', 'Arriving'], {
+  milestone: z.enum(['Truck Assigned', 'En Route to Pickup', 'Arrived at Pickup', 'Goods Loaded', 'In Transit', 'Arriving', 'Delivered'], {
     invalid_type_error: 'Invalid milestone supplied.'
   })
 });
@@ -156,6 +157,13 @@ export const registerDeviceSchema = z.object({
   }).default('android'),
 }).strict();
 
+export const updateFcmTokenSchema = z.object({
+  fcmToken: z.string()
+    .min(10, { message: 'fcmToken must be at least 10 characters' })
+    .max(4096, { message: 'fcmToken is too long' })
+    .nullable(),
+}).strict();
+
 export const createTicketSchema = z.object({
   subject: z.string().transform((v) => v.trim()).pipe(
     z.string().min(1, 'Subject is required').max(200, 'Subject must be 200 characters or fewer')
@@ -179,6 +187,8 @@ export const createTicketCommentSchema = z.object({
   message: z.string().transform((v) => v.trim()).pipe(
     z.string().min(1, 'Message is required').max(1000, 'Message must be 1000 characters or fewer')
   )
+}).strict();
+
 export const driverStatementSchema = z.object({
   start_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), {
     message: 'Must be a valid date string',
@@ -186,6 +196,9 @@ export const driverStatementSchema = z.object({
   end_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), {
     message: 'Must be a valid date string',
   }).optional(),
+  format: z.enum(['json', 'csv']).optional(),
+  sort_by: z.enum(['pickup_date', 'net_earnings', 'base_freight']).optional(),
+}).strict();
 
 // Indian vehicle registration plate: 2 letters, 2 digits, up to 3 letters, up to 4 digits
 // e.g. MH12AB1234 or DL01C1234
