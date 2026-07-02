@@ -85,7 +85,7 @@ describe('ml service — predictDemand', () => {
 
     await expect(predictDemand({ hour: 12, day_of_week: 1, temperature: 25, precipitation: 0, historical_volume: 100, nearby_drivers: 10 }))
       .rejects
-      .toThrow('ML Engine authentication failed: 401');
+      .toThrow('[ML] Authentication failed (401)');
   });
 
   it('throws with descriptive message on non-ok response', async () => {
@@ -98,7 +98,7 @@ describe('ml service — predictDemand', () => {
 
     await expect(predictDemand({ hour: 12, day_of_week: 1, temperature: 25, precipitation: 0, historical_volume: 100, nearby_drivers: 10 }))
       .rejects
-      .toThrow('ML Engine request failed: Internal Server Error');
+      .toThrow('[ML] Request failed (500)');
   });
 
   it('adds X-API-Key header when ML_API_KEY env var is set', async () => {
@@ -176,9 +176,9 @@ describe('ml service — predictPrice', () => {
     expect(body.truck_type).toBe('medium_truck');
   });
 
-  it('prefers ML_SERVICE_URL over ML_ENGINE_URL for price prediction', async () => {
-    process.env.ML_SERVICE_URL = 'http://price-service:8002';
+  it('prefers ML_ENGINE_URL over ML_SERVICE_URL for price prediction', async () => {
     process.env.ML_ENGINE_URL = 'http://demand-service:8001';
+    process.env.ML_SERVICE_URL = 'http://price-service:8002';
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ estimated_price: 2000, currency: 'INR' }),
@@ -187,9 +187,9 @@ describe('ml service — predictPrice', () => {
     await predictPrice({ distanceKm: 50, cargoWeightKg: 200 });
 
     const [url] = mockFetch.mock.calls[0];
-    expect(url).toContain('price-service:8002');
-    delete process.env.ML_SERVICE_URL;
+    expect(url).toContain('demand-service:8001');
     delete process.env.ML_ENGINE_URL;
+    delete process.env.ML_SERVICE_URL;
   });
 
   it('throws with descriptive message on 401/403 auth failure', async () => {
@@ -202,7 +202,7 @@ describe('ml service — predictPrice', () => {
 
     await expect(predictPrice({ distanceKm: 100, cargoWeightKg: 500 }))
       .rejects
-      .toThrow('ML Engine authentication failed: 403');
+      .toThrow('[ML] Authentication failed (403)');
   });
 
   it('throws with descriptive message on non-ok response', async () => {
@@ -215,7 +215,7 @@ describe('ml service — predictPrice', () => {
 
     await expect(predictPrice({ distanceKm: 100, cargoWeightKg: 500 }))
       .rejects
-      .toThrow('ML Engine request failed: Bad Gateway');
+      .toThrow('[ML] Request failed (502)');
   });
 
   it('rejects when fetch throws (network error)', async () => {

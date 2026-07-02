@@ -163,5 +163,20 @@ describe('Truck Routes', () => {
       expect(res.body.trucks.map(t => t.id)).toContain('truck-2');
       expect(res.body.trucks.map(t => t.id)).not.toContain('truck-other');
     });
+
+    it('supports name filtering using name query param', async () => {
+      m.store.trucks.push(
+        { id: 'truck-1', name: 'Big Blue Truck', number_plate: 'MH12AB0001', max_capacity_tons: 5, owner_id: 'driver-uuid-456', created_at: '2026-06-01T00:00:00Z' },
+        { id: 'truck-2', name: 'Tiny Red Truck', number_plate: 'MH12AB0002', max_capacity_tons: 10, owner_id: 'driver-uuid-456', created_at: '2026-06-02T00:00:00Z' }
+      );
+
+      const res = await request(buildApp())
+        .get('/api/trucks?name=blue')
+        .set(DRIVER_HEADERS);
+
+      expect(res.status).toBe(200);
+      expect(res.body.trucks).toHaveLength(1);
+      expect(res.body.trucks[0].id).toBe('truck-1');
+    });
   });
 });
