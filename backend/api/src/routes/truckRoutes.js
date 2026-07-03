@@ -89,6 +89,11 @@ router.get('/', authenticate, requireRole(['driver']), userLimiter, async (req, 
       .select('id, name, number_plate, max_capacity_tons, created_at')
       .eq('owner_id', req.user.id);
 
+    if (name && typeof name === 'string') {
+      const cleanName = name.trim();
+      if (cleanName) {
+        query = query.ilike('name', `%${cleanName}%`);
+      }
     if (name) {
       query = query.ilike('name', `%${name.trim()}%`);
     }
