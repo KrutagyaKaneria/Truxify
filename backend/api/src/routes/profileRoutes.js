@@ -108,12 +108,14 @@ router.put('/wallet', authenticate, userLimiter, validateBody(updateWalletSchema
       return res.status(500).json({ error: 'Failed to update wallet address.', details: updateErr.message });
     }
 
-    const { error: driverDetailsErr } = await supabase
-      .from('driver_details')
-      .upsert({ user_id: userId, polygon_wallet_address: normalized }, { onConflict: 'user_id' });
+    if (req.user.role === 'driver') {
+      const { error: driverDetailsErr } = await supabase
+        .from('driver_details')
+        .upsert({ user_id: userId, polygon_wallet_address: normalized }, { onConflict: 'user_id' });
 
-    if (driverDetailsErr) {
-      return res.status(500).json({ error: 'Failed to sync wallet to driver details.', details: driverDetailsErr.message });
+      if (driverDetailsErr) {
+        return res.status(500).json({ error: 'Failed to sync wallet to driver details.', details: driverDetailsErr.message });
+      }
     }
 
     if (req.user && req.user.uid) {
