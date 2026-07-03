@@ -1129,6 +1129,7 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
 
     res.json({ message: 'Delivery verified successfully! Payment released to driver.' });
   } catch (err) {
+    logger.error('[verify-delivery] Exception:', err.message);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
