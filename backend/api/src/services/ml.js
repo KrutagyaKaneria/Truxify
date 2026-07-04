@@ -51,8 +51,8 @@ async function handleResponse(response) {
 
     try {
         return JSON.parse(text);
-    } catch {
-        throw new Error('[ML] Invalid JSON response from ML engine');
+    } catch (err) {
+        throw new Error(`[ML] Invalid JSON response from ML engine: ${err.message}`);
     }
 }
 
