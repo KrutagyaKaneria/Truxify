@@ -81,6 +81,8 @@ function validateEventTripIds(events) {
     };
   }
   return { ok: true };
+}
+
 function hasCoordinatePayload(payload = {}) {
   return payload.lat !== undefined || payload.lng !== undefined;
 }

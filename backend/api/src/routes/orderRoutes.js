@@ -34,6 +34,7 @@ import {
 } from '../services/escrow.js';
 import { sendDeliveryOtpNotification, storeDeliveryOtp, getActiveDeliveryOtp, verifyDeliveryOtp, expireDeliveryOtps } from '../services/notificationService.js';
 import { requireIdempotency } from '../middleware/idempotency.js';
+import { acquireLock, releaseLock } from '../lib/redisLock.js';
 import logger from '../middleware/logger.js';
 
 const router = express.Router();
@@ -1374,94 +1375,104 @@ router.post('/:id/cancel', authenticate, userLimiter, requireRole(['customer']),
     }
 
     if (requiresRefund) {
-      let refundTxHash = workingOrder.refund_tx_hash ?? null;
+      const lockKey = `escrow_lock:${workingOrder.id}`;
+      const lockValue = await acquireLock(lockKey, 30000);
+      if (!lockValue) {
+        return res.status(409).json({ error: 'Refund is currently being processed. Please try again later.' });
+      }
 
       try {
-        let receipt;
+        let refundTxHash = workingOrder.refund_tx_hash ?? null;
 
-        if (refundTxHash) {
-          receipt = await confirmEscrowRefund(refundTxHash);
-        } else {
-          const submitted = await submitEscrowRefund(order.order_display_id);
-          refundTxHash = submitted.txHash;
-          if (!refundTxHash || !submitted.waitForConfirmation) {
-            throw new Error('Escrow refund transaction was not submitted.');
+        try {
+          let receipt;
+
+          if (refundTxHash) {
+            receipt = await confirmEscrowRefund(refundTxHash);
+          } else {
+            const submitted = await submitEscrowRefund(order.order_display_id);
+            refundTxHash = submitted.txHash;
+            if (!refundTxHash || !submitted.waitForConfirmation) {
+              throw new Error('Escrow refund transaction was not submitted.');
+            }
+
+            const submittedAt = new Date().toISOString();
+            const { error: hashErr } = await supabase
+              .from('orders')
+              .update({
+                refund_tx_hash: refundTxHash,
+                escrow_refund_submitted_at: submittedAt,
+                updated_at: submittedAt,
+              })
+              .eq('id', order.id)
+              .eq('escrow_status', 'refund_pending');
+
+            if (hashErr) {
+              logger.error('[escrow] Failed to persist refund tx hash for order', orderId, ':', hashErr.message);
+            }
+            receipt = await submitted.waitForConfirmation();
           }
 
-          const submittedAt = new Date().toISOString();
-          const { error: hashErr } = await supabase
+          const refundedAt = new Date().toISOString();
+          const { data: updatedOrder, error: updateErr } = await supabase
             .from('orders')
             .update({
-              refund_tx_hash: refundTxHash,
-              escrow_refund_submitted_at: submittedAt,
-              updated_at: submittedAt,
+              status: 'cancelled',
+              cancellation_reason: reason ?? workingOrder.cancellation_reason,
+              escrow_status: 'refunded',
+              refund_tx_hash: receipt.hash ?? refundTxHash,
+              escrow_refunded_at: refundedAt,
+              escrow_refund_error: null,
+              updated_at: refundedAt,
             })
             .eq('id', order.id)
-            .eq('escrow_status', 'refund_pending');
+            .in('escrow_status', ['refund_pending', 'refund_failed'])
+            .select('cancellation_fee, order_display_id, status, cancellation_reason, escrow_status, refund_tx_hash')
+            .single();
 
-          if (hashErr) {
-            logger.error('[escrow] Failed to persist refund tx hash for order', orderId, ':', hashErr.message);
+          if (updateErr) {
+            logger.error('[escrow] Refund confirmed but final order update failed for', orderId, ':', updateErr.message);
+            return res.status(202).json({
+              message: 'Order cancelled and escrow refund confirmed. Database reconciliation is pending.',
+              refund_tx_hash: receipt.hash ?? refundTxHash,
+              escrow_status: 'refund_pending',
+              reconciliation_required: true,
+            });
           }
-          receipt = await submitted.waitForConfirmation();
-        }
 
-        const refundedAt = new Date().toISOString();
-        const { data: updatedOrder, error: updateErr } = await supabase
-          .from('orders')
-          .update({
+          await supabase.from('order_timeline').update({ completed: true, milestone_time: refundedAt })
+            .eq('order_display_id', order.order_display_id)
+            .eq('milestone', 'Order Placed');
+
+          await expireDeliveryOtps(order.id);
+
+          return res.json({
+            message: 'Order cancelled and escrow refunded successfully.',
+            cancellation_fee: updatedOrder?.cancellation_fee ?? 0,
+            order: updatedOrder,
+          });
+        } catch (refundErr) {
+          logger.error('[escrow] Refund failed for order', orderId, ':', refundErr.message);
+          const failedAt = new Date().toISOString();
+          const nextEscrowStatus = refundTxHash ? 'refund_pending' : 'refund_failed';
+          await supabase.from('orders').update({
             status: 'cancelled',
-            cancellation_reason: reason ?? workingOrder.cancellation_reason,
-            escrow_status: 'refunded',
-            refund_tx_hash: receipt.hash ?? refundTxHash,
-            escrow_refunded_at: refundedAt,
-            escrow_refund_error: null,
-            updated_at: refundedAt,
-          })
-          .eq('id', order.id)
-          .in('escrow_status', ['refund_pending', 'refund_failed'])
-          .select('cancellation_fee, order_display_id, status, cancellation_reason, escrow_status, refund_tx_hash')
-          .single();
+            escrow_status: nextEscrowStatus,
+            refund_tx_hash: refundTxHash,
+            escrow_refund_error: String(refundErr.message || refundErr).slice(0, 1000),
+            escrow_refund_last_attempt_at: failedAt,
+            updated_at: failedAt,
+          }).eq('id', order.id);
 
-        if (updateErr) {
-          logger.error('[escrow] Refund confirmed but final order update failed for', orderId, ':', updateErr.message);
           return res.status(202).json({
-            message: 'Order cancelled and escrow refund confirmed. Database reconciliation is pending.',
-            refund_tx_hash: receipt.hash ?? refundTxHash,
-            escrow_status: 'refund_pending',
-            reconciliation_required: true,
+            message: 'Order cancelled. Escrow refund requires reconciliation.',
+            escrow_status: nextEscrowStatus,
+            refund_tx_hash: refundTxHash,
+            retryable: true,
           });
         }
-
-        await supabase.from('order_timeline').update({ completed: true, milestone_time: refundedAt })
-          .eq('order_display_id', order.order_display_id)
-          .eq('milestone', 'Order Placed');
-
-        await expireDeliveryOtps(order.id);
-
-        return res.json({
-          message: 'Order cancelled and escrow refunded successfully.',
-          cancellation_fee: updatedOrder?.cancellation_fee ?? 0,
-          order: updatedOrder,
-        });
-      } catch (refundErr) {
-        logger.error('[escrow] Refund failed for order', orderId, ':', refundErr.message);
-        const failedAt = new Date().toISOString();
-        const nextEscrowStatus = refundTxHash ? 'refund_pending' : 'refund_failed';
-        await supabase.from('orders').update({
-          status: 'cancelled',
-          escrow_status: nextEscrowStatus,
-          refund_tx_hash: refundTxHash,
-          escrow_refund_error: String(refundErr.message || refundErr).slice(0, 1000),
-          escrow_refund_last_attempt_at: failedAt,
-          updated_at: failedAt,
-        }).eq('id', order.id);
-
-        return res.status(202).json({
-          message: 'Order cancelled. Escrow refund requires reconciliation.',
-          escrow_status: nextEscrowStatus,
-          refund_tx_hash: refundTxHash,
-          retryable: true,
-        });
+      } finally {
+        await releaseLock(lockKey, lockValue);
       }
     } else if (order.escrow_booking_id) {
       logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);

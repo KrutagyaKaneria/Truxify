@@ -4,10 +4,10 @@ import CircuitBreaker from 'opossum';
 // Single source of truth for ML engine base URL
 const DEFAULT_ML_ENGINE_URL = 'http://localhost:8001';
 
-const mlBreaker = new CircuitBreaker(async (url, options) => {
+export const mlBreaker = new CircuitBreaker(async (url, options) => {
     const response = await fetch(url, options);
     if (response.status >= 500) {
-        throw new Error(`[ML] Service unavailable (${response.status})`);
+        throw new Error(`[ML] Request failed (${response.status})`);
     }
     return response;
 }, {
