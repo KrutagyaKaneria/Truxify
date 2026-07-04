@@ -154,7 +154,7 @@ void main() {
   final mockAuth = MockGoTrueClient(mockUser: mockUser);
 
   group('TripService.fetchTripHistory Tests', () {
-    test('Rejects invalid cursor before sending request', () async {
+    test('Rejects out of range limit before sending request', () async {
       final requests = <http.Request>[];
       final mockHttp = MockClient((request) async {
         requests.add(request);
@@ -240,6 +240,23 @@ void main() {
         () => service.markStopCompleted(stopId, tripDisplayId),
         throwsA(isA<Exception>().having((e) => e.toString(), 'message',
             contains('Stop not found or does not belong to this trip'))),
+      );
+    });
+
+    test('Throws fallback message when stop update error is not JSON', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response('Bad gateway', 502);
+      });
+
+      final service = TripService(client: ownedTripClient(), httpClient: mockHttp);
+
+      expect(
+        () => service.markStopCompleted(stopId, tripDisplayId),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Failed to mark stop completed (502)'),
+        )),
       );
     });
 
