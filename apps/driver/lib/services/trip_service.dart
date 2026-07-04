@@ -161,8 +161,7 @@ class TripService {
     final response = await _httpClient.put(uri, headers: await _authHeaders());
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      throw Exception(body?['error'] as String? ?? 'Failed to mark stop completed');
+      throw Exception(_errorMessage(response, 'Failed to mark stop completed'));
     }
   }
 
@@ -186,8 +185,20 @@ class TripService {
     final response = await _httpClient.put(uri, headers: await _authHeaders());
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      throw Exception(body?['error'] as String? ?? 'Failed to start trip');
+      throw Exception(_errorMessage(response, 'Failed to start trip'));
     }
+  }
+
+  String _errorMessage(http.Response response, String fallback) {
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        final error = decoded['error'] ?? decoded['message'];
+        if (error != null) return error.toString();
+      }
+    } catch (_) {
+      // Fall back to a status-aware message when the server does not return JSON.
+    }
+    return '$fallback (${response.statusCode})';
   }
 }

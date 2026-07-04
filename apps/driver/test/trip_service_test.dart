@@ -221,6 +221,23 @@ void main() {
       );
     });
 
+    test('Throws fallback message when stop update error is not JSON', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response('Bad gateway', 502);
+      });
+
+      final service = TripService(client: ownedTripClient(), httpClient: mockHttp);
+
+      expect(
+        () => service.markStopCompleted(stopId, tripDisplayId),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Failed to mark stop completed (502)'),
+        )),
+      );
+    });
+
     test('Throws exception if driver does not own the trip', () async {
       final client = FakeSupabaseClient(
         auth: mockAuth,
