@@ -130,7 +130,7 @@ export async function authenticate(req, res, next) {
       const cachedProfile = await getCachedProfile(firebaseUid);
       if (cachedProfile) {
         if (!isValidCachedProfile(firebaseUid, cachedProfile)) {
-          try { await invalidateCachedProfile(firebaseUid); } catch (_) { logger.error('Cache invalidation failed', _); }
+          try { await invalidateCachedProfile(firebaseUid); } catch (err) { logger.error({ err }, 'Cache invalidation failed'); }
         } else {
           if (cachedProfile.isActive === false) {
             return res.status(403).json({
@@ -185,7 +185,7 @@ export async function authenticate(req, res, next) {
       }
 
       if (firebaseUid) {
-        try { await setCachedProfile(firebaseUid, { isActive: false }, TOMBSTONE_TTL_SECONDS); } catch (_) { logger.error('Cache set failed', _); }
+        try { await setCachedProfile(firebaseUid, { isActive: false }, TOMBSTONE_TTL_SECONDS); } catch (err) { logger.error({ err }, 'Cache set failed'); }
       }
       if (supabaseUserId) {
         void setCachedSupabaseProfile(supabaseUserId, { isActive: false }, TOMBSTONE_TTL_SECONDS);
@@ -215,7 +215,7 @@ export async function authenticate(req, res, next) {
 
     // Populate cache on successful DB fetch
     if (userProfile.firebase_uid) {
-      try { await setCachedProfile(userProfile.firebase_uid, req.user); } catch (_) { logger.error('Cache set failed', _); }
+      try { await setCachedProfile(userProfile.firebase_uid, req.user); } catch (err) { logger.error({ err }, 'Cache set failed'); }
     }
     if (supabaseUserId) {
       // Clamp the cache lifetime to the token's remaining validity so a cached
