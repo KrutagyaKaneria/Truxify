@@ -71,6 +71,18 @@ const validateBatchPayload = (schema) => (req, res, next) => {
   }
 };
 
+function validateEventTripIds(events) {
+  const missingIndex = events.findIndex(event => !event.trip_id);
+  if (missingIndex !== -1) {
+    return {
+      ok: false,
+      status: 400,
+      error: `events.${missingIndex}.trip_id is required`,
+    };
+  }
+  return { ok: true };
+}
+
 async function verifyTripIdsBelongToUser(tripIds, user) {
   const uniqueTripIds = [...new Set(tripIds.filter(Boolean))];
   if (uniqueTripIds.length === 0) return { ok: true };
@@ -161,6 +173,11 @@ router.post('/events/batch', authenticate, userLimiter, validateBatchPayload(bat
           details: result.error.issues,
         });
       }
+    }
+
+    const tripIdCheck = validateEventTripIds(events);
+    if (!tripIdCheck.ok) {
+      return res.status(tripIdCheck.status).json({ error: tripIdCheck.error });
     }
 
     const ownershipCheck = await verifyTripIdsBelongToUser(events.map(event => event.trip_id), req.user);

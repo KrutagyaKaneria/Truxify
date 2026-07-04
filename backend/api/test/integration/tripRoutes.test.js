@@ -231,6 +231,29 @@ describe('Trip Routes', () => {
         expect(res.body.error).toBe('Database failed to process batch.');
     });
 
+    it('POST /events/batch returns 400 when an event omits trip_id', async () => {
+        const res = await request(buildApp())
+            .post('/api/v1/trips/events/batch')
+            .set(DRIVER_HEADERS)
+            .send({
+                idempotencyKey: 'batch-missing-trip',
+                events: [
+                    {
+                        id: 'event-missing-trip',
+                        type: 'location_update',
+                        occurred_at: new Date().toISOString(),
+                        payload: {
+                            lat: 19.076,
+                            lng: 72.8777,
+                        },
+                    },
+                ],
+            });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('events.0.trip_id is required');
+    });
+
     it('POST /events/batch returns 422 for otpDelivery event containing otp', async () => {
         const res = await request(buildApp())
             .post('/api/v1/trips/events/batch')
