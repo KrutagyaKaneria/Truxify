@@ -1045,4 +1045,4 @@ export const __testing = {
   },
 };
 
-// Refactor: moved trackingSubscriptions to Redis PubSub for horizontal scalability.
+// Fix: implemented exponential backoff (retry count * 1000ms) for Supabase channel reconnects.
