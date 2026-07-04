@@ -2,8 +2,8 @@ import express from 'express';
 import { supabase } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { userLimiter } from '../middleware/rateLimiter.js';
-import { validateBody } from '../middleware/validate.js';
-import { createTicketSchema, updateTicketSchema, createTicketCommentSchema } from '../validation/requestSchemas.js';
+import { validateBody, validateParams } from '../middleware/validate.js';
+import { createTicketSchema, updateTicketSchema, createTicketCommentSchema, uuidParamSchema } from '../validation/requestSchemas.js';
 
 const router = express.Router();
 
@@ -27,10 +27,18 @@ function normalizeRequiredText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeCategoryAlias(value) {
-  const normalized = normalizeRequiredText(value).toLowerCase();
-  if (!normalized) return null;
-  return CATEGORY_MAP[normalized];
+function parseIntegerQuery(value, fallback, field, { min }) {
+  if (value === undefined) return { value: fallback };
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    return { error: `${field} must be an integer greater than or equal to ${min}` };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (parsed < min) {
+    return { error: `${field} must be an integer greater than or equal to ${min}` };
+  }
+
+  return { value: parsed };
 }
 
 // ============================================================================
@@ -94,6 +102,12 @@ const CATEGORY_DESCRIPTIONS = {
   account: 'Login problems, account settings, and profile access.',
 };
 
+/**
+ * @route GET /api/support/categories
+ * @desc Retrieve the valid support ticket categories, their human-readable labels, descriptions, and SLA response times
+ * @access Public (No authentication required)
+ * @returns {object} 200 - Object containing categories array, labels map, SLA hours map, and descriptions map
+ */
 router.get('/categories', (_req, res) => {
   res.json({
     categories: VALID_CATEGORIES,
@@ -159,7 +173,8 @@ router.get('/tickets', authenticate, userLimiter, async (req, res) => {
   const pageNum = parsedPage;
   const limitNum = Math.min(100, parsedLimit);
   const offset = (pageNum - 1) * limitNum;
-  const dbCategory = normalizeCategoryAlias(category);
+  const normalizedCategory = typeof category === 'string' ? category.toLowerCase().trim() : '';
+  const dbCategory = CATEGORY_MAP[normalizedCategory] || null;
 
   if (category && !dbCategory) {
     return res.status(400).json({ error: 'Unsupported support ticket category.' });
@@ -339,7 +354,8 @@ router.get('/admin/tickets', authenticate, userLimiter, requireRole(['admin']), 
   const pageNum = parsedPage;
   const limitNum = Math.min(100, parsedLimit);
   const offset = (pageNum - 1) * limitNum;
-  const dbCategory = normalizeCategoryAlias(category);
+  const normalizedCategory = typeof category === 'string' ? category.toLowerCase().trim() : '';
+  const dbCategory = CATEGORY_MAP[normalizedCategory] || null;
 
   if (category && !dbCategory) {
     return res.status(400).json({ error: 'Unsupported support ticket category.' });
@@ -387,9 +403,19 @@ router.get('/admin/tickets', authenticate, userLimiter, requireRole(['admin']), 
   }
 });
 
-// ============================================================================
-// 7. CREATE A COMMENT/REPLY ON A TICKET (CUSTOMER OR DRIVER OWNER OR ADMIN)
-// ============================================================================
+/**
+ * @route POST /api/support/tickets/:id/comments
+ * @desc Create a comment/reply on a support ticket
+ * @access Authenticated (Ticket Owner or Admin)
+ * @param {string} req.params.id - The UUID of the support ticket
+ * @param {string} req.body.message - Comment content/message
+ * @returns {object} 201 - Comment added successfully with comment details
+ * @returns {object} 400 - Validation errors
+ * @returns {object} 403 - Forbidden if user is not the ticket owner or admin
+ * @returns {object} 404 - Support ticket not found
+ * @returns {object} 409 - Cannot comment on a closed ticket
+ * @returns {object} 500 - Internal server error
+ */
 router.post('/tickets/:id/comments', authenticate, userLimiter, validateBody(createTicketCommentSchema), async (req, res) => {
   const ticketId = req.params.id;
   const { message } = req.body;
@@ -451,9 +477,12 @@ router.post('/tickets/:id/comments', authenticate, userLimiter, validateBody(cre
 // ============================================================================
 // 8. GET ALL COMMENTS/REPLIES FOR A TICKET (CUSTOMER OR DRIVER OWNER OR ADMIN)
 // ============================================================================
-router.get('/tickets/:id/comments', authenticate, userLimiter, async (req, res) => {
+router.get('/tickets/:id/comments', authenticate, userLimiter, validateParams(uuidParamSchema), async (req, res) => {
   const ticketId = req.params.id;
   const { sort } = req.query;
+  if (sort !== undefined && sort !== 'asc' && sort !== 'desc') {
+    return res.status(400).json({ error: "sort parameter must be 'asc' or 'desc'" });
+  }
   const isAscending = sort !== 'desc';
 
   try {
@@ -478,16 +507,17 @@ router.get('/tickets/:id/comments', authenticate, userLimiter, async (req, res) 
       return res.status(403).json({ error: 'Access Denied: You do not own this ticket.' });
     }
 
-    const rawLimit = req.query.limit;
-    const rawOffset = req.query.offset;
-    if (rawLimit !== undefined && (!Number.isFinite(Number(rawLimit)) || Number(rawLimit) < 1)) {
-      return res.status(400).json({ error: 'limit must be a positive integer' });
+    const parsedLimit = parseIntegerQuery(req.query.limit, 100, 'limit', { min: 1 });
+    if (parsedLimit.error) {
+      return res.status(400).json({ error: parsedLimit.error });
     }
-    if (rawOffset !== undefined && (!Number.isFinite(Number(rawOffset)) || Number(rawOffset) < 0)) {
-      return res.status(400).json({ error: 'offset must be a non-negative integer' });
+    const parsedOffset = parseIntegerQuery(req.query.offset, 0, 'offset', { min: 0 });
+    if (parsedOffset.error) {
+      return res.status(400).json({ error: parsedOffset.error });
     }
-    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 100));
-    const offset = Math.max(0, Number(rawOffset) || 0);
+
+    const limit = Math.min(100, parsedLimit.value);
+    const offset = parsedOffset.value;
 
     const { data: comments, error: commentsError } = await supabase
       .from('support_ticket_comments')

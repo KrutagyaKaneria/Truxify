@@ -4,6 +4,24 @@ import logger from "../middleware/logger.js";
 import { GpsLog } from "../models/GpsLog.js";
 import { supabase } from "../config/db.js";
 
+// Telemetry Bulk Insert Buffer
+const BATCH_FLUSH_INTERVAL_MS = 2000;
+const gpsBuffer = [];
+
+setInterval(async () => {
+  if (gpsBuffer.length === 0) return;
+  
+  // Safely extract the current batch
+  const batch = gpsBuffer.splice(0, gpsBuffer.length);
+  
+  try {
+    await GpsLog.insertMany(batch, { ordered: false });
+    logger.debug(`[WS] Bulk inserted ${batch.length} GPS points into MongoDB.`);
+  } catch (error) {
+    logger.error({ error: error.message }, '[WS] Failed to bulk insert GPS buffer to MongoDB');
+  }
+}, BATCH_FLUSH_INTERVAL_MS);
+
 /**
  * Attaches the Truxify Live Location WebSocket server to an existing
  * Node.js HTTP server.
@@ -81,8 +99,8 @@ export function attachLocationServer(httpServer) {
 
         const gpsTimestamp = timestamp ? new Date(timestamp) : new Date();
 
-        // 1. Persist GPS point to MongoDB time-series collection
-        await GpsLog.create({
+        // 1. Buffer GPS point to MongoDB time-series collection
+        gpsBuffer.push({
           bookingId,
           driverId,
           lat,
