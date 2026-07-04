@@ -87,7 +87,10 @@ class TripService {
     int limit = 20,
     String? status,
   }) async {
-    final page = int.tryParse(cursor ?? '1') ?? 1;
+    final page = int.tryParse(cursor ?? '1');
+    if (page == null || page < 1) {
+      throw ArgumentError.value(cursor, 'cursor', 'must be a positive integer');
+    }
     var uriString = '$_apiBaseUrl/api/driver/trips?page=$page&limit=$limit';
     if (status != null) {
       uriString += '&status=${Uri.encodeQueryComponent(status)}';
