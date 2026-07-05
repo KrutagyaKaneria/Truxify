@@ -49,8 +49,8 @@ try {
 // ============================================================================
 // STARTUP VALIDATION — crash fast, not at request time
 // ============================================================================
-if (process.env.NODE_ENV === 'production' && process.env.BYPASS_AUTH === 'true') {
-  logger.fatal('BYPASS_AUTH is enabled in production. This is a severe security misconfiguration. Set BYPASS_AUTH=false (or unset it) and restart the server.');
+if (process.env.BYPASS_AUTH === 'true' && process.env.NODE_ENV !== 'development') {
+  logger.fatal('BYPASS_AUTH is enabled outside development. This is a severe security misconfiguration. Set BYPASS_AUTH=false (or unset it), and set NODE_ENV=development if you need local testing.');
   process.exit(1);
 }
 if (process.env.NODE_ENV === 'production' && !process.env.ML_API_KEY) {
@@ -154,7 +154,9 @@ setupSwagger(app);
 
 // Root route
 app.get('/', (req, res) => {
-  res.send('<h1>Truxify Backend API is running.</h1><p>Use WebSockets at <code>ws://localhost:5000/ws/tracking</code></p>');
+  const wsHost = req.hostname || 'localhost';
+  const wsPort = process.env.PORT || 5000;
+  res.send(`<h1>Truxify Backend API is running.</h1><p>Use WebSockets at <code>ws://${wsHost}:${wsPort}/ws/tracking</code></p>`);
 });
 
 // Handling 404 Route Not Found
@@ -239,6 +241,7 @@ process.on('uncaughtException', async (err) => {
 process.on('unhandledRejection', async (reason) => {
   logger.error({ reason }, 'Unhandled promise rejection');
   await flushSentry(2000);
+  process.exit(1);
 });
 
 process.on('SIGTERM', () => shutdown('SIGTERM')); // Docker / Kubernetes stop
