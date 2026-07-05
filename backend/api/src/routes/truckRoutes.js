@@ -100,8 +100,7 @@ router.post('/', authenticate, requireRole(['driver']), userLimiter, validateBod
  * @returns {object} 500 - Internal server error
  */
 router.get('/', authenticate, requireRole(['driver']), userLimiter, async (req, res) => {
-  const { name } = req.query;
-  const { min_capacity, max_capacity } = req.query;
+  const { name, min_capacity, max_capacity } = req.query;
 
   try {
     const minCapacity = parseCapacityFilter(min_capacity, 'min_capacity');
@@ -133,25 +132,19 @@ router.get('/', authenticate, requireRole(['driver']), userLimiter, async (req, 
         query = query.ilike('name', `%${cleanName}%`);
       }
     }
-    const parsedMin = Number(min_capacity);
-    const parsedMax = Number(max_capacity);
-    if (min_capacity && (!Number.isFinite(parsedMin) || parsedMin < 0)) {
-      return res.status(400).json({ error: 'min_capacity must be a non-negative number' });
-    }
-    if (max_capacity && (!Number.isFinite(parsedMax) || parsedMax < 0)) {
-      return res.status(400).json({ error: 'max_capacity must be a non-negative number' });
-    }
+
     if (min_capacity !== undefined) {
       const minCapNum = Number(min_capacity);
-      if (Number.isNaN(minCapNum) || minCapNum < 0) {
-        return res.status(400).json({ error: 'min_capacity must be a positive number' });
+      if (!Number.isFinite(minCapNum) || minCapNum < 0) {
+        return res.status(400).json({ error: 'min_capacity must be a non-negative number' });
       }
       query = query.gte('max_capacity_tons', minCapNum);
     }
+
     if (max_capacity !== undefined) {
       const maxCapNum = Number(max_capacity);
-      if (Number.isNaN(maxCapNum) || maxCapNum < 0) {
-        return res.status(400).json({ error: 'max_capacity must be a positive number' });
+      if (!Number.isFinite(maxCapNum) || maxCapNum < 0) {
+        return res.status(400).json({ error: 'max_capacity must be a non-negative number' });
       }
       query = query.lte('max_capacity_tons', maxCapNum);
     }
