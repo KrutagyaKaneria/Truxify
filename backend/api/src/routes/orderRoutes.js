@@ -1091,8 +1091,6 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       return res.status(500).json({ error: 'Failed to complete trip and release payment.', details: rpcErr.message });
     }
 
-    // Clear brute-force state only after the OTP and trip transaction commits.
-    await clearOtpState(orderId);
     // Post-RPC verification: confirm the order was actually updated to payment_released
     const { data: verifiedOrder, error: verifyErr } = await supabase
       .from('orders')
