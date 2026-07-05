@@ -237,7 +237,7 @@ export function initWebSocketServer(server) {
     });
 
     ws.on('message', (message) => {
-      handleTrackingMessage(ws, message);
+      handleTrackingMessage(ws, message, req);
     });
 
     ws.on('close', () => {
@@ -291,7 +291,7 @@ function isMessageRateLimited(ws) {
   return state.count > MAX_MSG_PER_SECOND;
 }
 
-export async function handleTrackingMessage(ws, message) {
+export async function handleTrackingMessage(ws, message, req) {
   if (isMessageRateLimited(ws)) {
     return;
   }
@@ -313,7 +313,7 @@ export async function handleTrackingMessage(ws, message) {
 
     switch (event) {
       case 'location_ping':
-        await handleLocationPing(ws, data);
+        await handleLocationPing(ws, data, req);
         break;
 
       case 'subscribe_tracking':
@@ -333,7 +333,7 @@ export async function handleTrackingMessage(ws, message) {
   }
 }
 
-export async function handleLocationPing(ws, data) {
+export async function handleLocationPing(ws, data, req) {
   const driver_id = ws.driverId;
 
   if (!driver_id) {
@@ -343,7 +343,7 @@ export async function handleLocationPing(ws, data) {
   const { driver_id: payloadDriverId, speed, bearing, device_timestamp } = data;
 
   if (payloadDriverId && payloadDriverId !== driver_id) {
-    const clientIp = ws.upgradeReq?.socket?.remoteAddress || 'unknown';
+    const clientIp = req ? getClientIp(req) : 'unknown';
     logger.error({
       event: 'SPOOFED_LOCATION_ATTEMPT',
       authenticatedDriver: driver_id,
