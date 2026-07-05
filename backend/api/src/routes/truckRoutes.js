@@ -11,6 +11,20 @@ import logger from '../middleware/logger.js';
 
 const router = express.Router();
 
+function parseCapacityFilter(value, field) {
+  if (value === undefined) return { value: undefined };
+  if (typeof value !== 'string' || value.trim() === '') {
+    return { error: `${field} must be a positive number` };
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { error: `${field} must be a positive number` };
+  }
+
+  return { value: parsed };
+}
+
 // ============================================================================
 // REGISTER A TRUCK (DRIVER ONLY)
 // ============================================================================
@@ -84,6 +98,24 @@ router.get('/', authenticate, requireRole(['driver']), userLimiter, async (req, 
   const { min_capacity, max_capacity } = req.query;
 
   try {
+    const minCapacity = parseCapacityFilter(min_capacity, 'min_capacity');
+    if (minCapacity.error) {
+      return res.status(400).json({ error: minCapacity.error });
+    }
+
+    const maxCapacity = parseCapacityFilter(max_capacity, 'max_capacity');
+    if (maxCapacity.error) {
+      return res.status(400).json({ error: maxCapacity.error });
+    }
+
+    if (
+      minCapacity.value !== undefined &&
+      maxCapacity.value !== undefined &&
+      minCapacity.value > maxCapacity.value
+    ) {
+      return res.status(400).json({ error: 'min_capacity must be less than or equal to max_capacity' });
+    }
+
     let query = supabase
       .from('trucks')
       .select('id, name, number_plate, max_capacity_tons, created_at')
