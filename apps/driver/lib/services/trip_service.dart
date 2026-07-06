@@ -130,7 +130,8 @@ class TripService {
     }
 
     final body = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(body as List);
+    if (body is! List) return [];
+    return List<Map<String, dynamic>>.from(body);
   }
 
   Future<List<Map<String, dynamic>>> fetchTripStops(
@@ -144,7 +145,8 @@ class TripService {
     }
 
     final body = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(body as List);
+    if (body is! List) return [];
+    return List<Map<String, dynamic>>.from(body);
   }
 
   Future<List<Map<String, dynamic>>> fetchRouteMapPoints(
@@ -158,7 +160,8 @@ class TripService {
     }
 
     final body = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(body as List);
+    if (body is! List) return [];
+    return List<Map<String, dynamic>>.from(body);
   }
 
   Future<void> markStopCompleted(
