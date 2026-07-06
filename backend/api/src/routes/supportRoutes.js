@@ -150,7 +150,7 @@ router.post('/tickets', authenticate, userLimiter, validateBody(createTicketSche
   const category = normalizeRequiredText(req.body.category);
   const description = normalizeRequiredText(req.body.description) || subject;
 
-  const normalizedCategory = category.toLowerCase();
+  const normalizedCategory = category.toLowerCase().trim();
   const dbCategory = CATEGORY_MAP[normalizedCategory];
 
   if (!dbCategory) {
