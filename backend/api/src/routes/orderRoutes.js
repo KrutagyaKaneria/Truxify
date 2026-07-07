@@ -23,40 +23,36 @@ import {
 } from '../validation/requestSchemas.js';
 import { awardReputationPoints } from '../services/reputation.js';
 import {
+  escrowRefund,
+  buildDepositTx,
   recordDepositTx,
   submitEscrowRefund,
   confirmEscrowRefund,
 } from '../services/escrow.js';
 import { BidAcceptanceService, DomainError } from '../services/order/bidAcceptanceService.js';
-import { OrderMilestoneService, clearOtpState, DELIVERY_OTP_READY_STATUSES, OTP_TTL_MINUTES } from '../services/order/orderMilestoneService.js';
+import { expireDeliveryOtps } from '../services/notificationService.js';
 import {
-  sendDeliveryOtpNotification,
-  storeDeliveryOtp,
-  expireDeliveryOtps
-} from '../services/notificationService.js';
-
-const orderMilestoneService = new OrderMilestoneService();
+  verifyDelivery,
+  generateDeliveryOtp,
+  resendDeliveryOtp,
+  sendOtpNotification,
+} from '../services/order/deliveryVerificationService.js';
 import { predictDemand, predictPrice } from '../services/ml.js';
 import { requireIdempotency } from '../middleware/idempotency.js';
 import { acquireLock, releaseLock } from '../lib/redisLock.js';
 import logger from '../middleware/logger.js';
 
 const router = express.Router();
-const orderNotificationService = new OrderNotificationService();
 
-// Request input validation helper for order endpoints
-function validateOrderInput(body) {
-  const errors = [];
-  if (!body.customer_id) errors.push('customer_id is required');
-  if (!body.origin) errors.push('origin is required');
-  if (!body.destination) errors.push('destination is required');
-  if (!body.goods_type) errors.push('goods_type is required');
-  return errors.length > 0 ? { valid: false, errors } : { valid: true };
-}
+const bidAcceptanceService = new BidAcceptanceService({
+  supabase,
+  buildDepositTxFn: buildDepositTx,
+  recordDepositTxFn: recordDepositTx,
+  escrowRefundFn: escrowRefund,
+  logger,
+});
 
-// ── OTP constants and state management moved to orderMilestoneService ──
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 
 // Rate limiter for the verify-delivery endpoint
 const verifyDeliveryLimiter = rateLimit({
@@ -726,12 +722,65 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
 // ============================================================================
 router.put('/:id/milestones', authenticate, userLimiter, requireRole(['driver']), milestoneLimiter, validateParams(paramIdSchema), validateBody(updateMilestoneSchema), async (req, res) => {
   try {
-    const result = await orderMilestoneService.updateMilestone({
-      orderId: req.params.id,
-      milestone: req.body.milestone,
-      driverId: req.user.id,
-    });
-    res.json({ message: 'Milestone updated successfully.', ...result });
+    const { data: order, error: orderErr } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+    if (orderErr || !order) return res.status(404).json({ error: 'Order not found.' });
+    if (order.driver_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You are not assigned to this order.' });
+
+    const { data: timeline, error: tlErr } = await supabase
+      .from('order_timeline')
+      .select('milestone, sort_order, completed')
+      .eq('order_display_id', order.order_display_id)
+      .order('sort_order', { ascending: true });
+    if (tlErr) return res.status(500).json({ error: 'Failed to fetch order timeline.' });
+
+    const canonicalMilestones = new Set([...Object.keys(milestoneMap), 'Order Placed', 'Delivered']);
+    const lastCompleted = [...timeline].reverse().find(t => t.completed && canonicalMilestones.has(t.milestone));
+    const lastCompletedSortOrder = lastCompleted ? lastCompleted.sort_order : 10;
+
+    const timelineEntry = timeline.find(t => t.milestone === milestone);
+    if (!timelineEntry) return res.status(400).json({ error: `Milestone "${milestone}" is not part of this order's timeline.` });
+
+    if (timelineEntry.completed) {
+      return res.status(409).json({ error: `Milestone "${milestone}" has already been completed.` });
+    }
+
+    const nextExpected = timeline.find(t => !t.completed && t.sort_order > lastCompletedSortOrder);
+    if (!nextExpected || nextExpected.sort_order !== timelineEntry.sort_order) {
+      return res.status(422).json({
+        error: `Milestone out of sequence. Expected "${nextExpected ? nextExpected.milestone : 'none'}" before "${milestone}".`,
+      });
+    }
+
+    const status = milestoneMap[milestone];
+    const updates = { status, updated_at: new Date().toISOString() };
+    let generatedOtp = null;
+
+    if (milestone === 'In Transit') {
+      const result = await generateDeliveryOtp({ orderId });
+      generatedOtp = result.otp;
+    }
+
+    const { error: timelineErr } = await supabase.from('order_timeline').update({ completed: true, milestone_time: new Date().toISOString() }).eq('order_display_id', order.order_display_id).eq('milestone', milestone);
+    if (timelineErr) return res.status(500).json({ error: 'Failed to update order timeline.', details: timelineErr.message });
+
+    const { data: updatedOrder, error: updateErr } = await supabase.from('orders').update(updates).eq('id', orderId).select('*').single();
+    if (updateErr) {
+      // Roll back the timeline mark since the order update failed
+      await supabase
+        .from('order_timeline')
+        .update({ completed: false, milestone_time: null })
+        .eq('order_display_id', order.order_display_id)
+        .eq('milestone', milestone);
+      return res.status(500).json({ error: 'Failed to update order.', details: updateErr.message });
+    }
+
+    if (generatedOtp) {
+      await sendOtpNotification({ orderId, customerId: order.customer_id, orderDisplayId: order.order_display_id, otp: generatedOtp });
+    }
+
+    const response = { message: 'Milestone updated successfully.', order: updatedOrder, milestone, status };
+
+    res.json(response);
   } catch (err) {
     if (err instanceof DomainError) {
       return res.status(err.status).json(err.payload);
@@ -744,13 +793,25 @@ router.put('/:id/milestones', authenticate, userLimiter, requireRole(['driver'])
 // 13. VERIFY DELIVERY OTP AND RELEASE FUNDS (DRIVER)
 // ============================================================================
 router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['driver']), verifyDeliveryLimiter, requireIdempotency(86400), validateParams(paramIdSchema), validateBody(verifyDeliverySchema), async (req, res) => {
+  const orderId = req.params.id;
+  const { otp } = req.body;
+
   try {
-    const result = await orderMilestoneService.verifyDelivery({
-      orderId: req.params.id,
-      otp: req.body.otp,
+    const { escrowUpdateFailed } = await verifyDelivery({
+      orderId,
       driverId: req.user.id,
+      otp,
     });
-    return res.status(result.status).json(result.body);
+
+    if (escrowUpdateFailed) {
+      return res.status(202).json({
+        message: 'Delivery verified successfully. Escrow payout requires reconciliation.',
+        escrow_status: 'released',
+        payment_released: true,
+      });
+    }
+
+    res.json({ message: 'Delivery verified successfully! Payment released to driver.' });
   } catch (err) {
     if (err instanceof DomainError) {
       return res.status(err.status).json(err.payload);
@@ -771,26 +832,18 @@ router.post('/:id/resend-otp', authenticate, userLimiter, resendOtpLimiter, requ
     if (orderErr || !order) return res.status(404).json({ error: 'Order not found.' });
     if (order.driver_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: You are not assigned to this order.' });
 
-    const terminalStatuses = ['delivered', 'cancelled', 'payment_released'];
-    if (terminalStatuses.includes(order.status)) {
-      return res.status(400).json({ error: 'Cannot resend OTP for a completed or cancelled order.' });
-    }
-    if (!DELIVERY_OTP_READY_STATUSES.has(order.status)) {
-      return res.status(409).json({ error: 'Delivery OTP can only be sent after the shipment reaches the delivery location.' });
-    }
-
-    const result = await orderNotificationService.sendOrderNotification({
-      type: 'delivery_otp_resend',
+    const { expiresInMinutes } = await resendDeliveryOtp({
       orderId,
-      orderDisplayId: order.order_display_id,
       customerId: order.customer_id,
+      orderDisplayId: order.order_display_id,
+      orderStatus: order.status,
     });
-    if (!result.otp) {
-      return res.status(500).json({ error: 'Failed to generate delivery OTP.' });
-    }
 
-    res.json({ message: 'New delivery OTP sent.', expiresInMinutes: OTP_TTL_MINUTES });
+    res.json({ message: 'New delivery OTP sent.', expiresInMinutes });
   } catch (err) {
+    if (err instanceof DomainError) {
+      return res.status(err.status).json(err.payload);
+    }
     logger.error('[OrderRoutes] Resend OTP error:', err.message);
     res.status(500).json({ error: 'Internal Server Error' });
   }
