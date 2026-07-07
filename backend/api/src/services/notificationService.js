@@ -202,7 +202,7 @@ export async function sendDeliveryOtpNotification(customerId, orderDisplayId, ot
       .insert({
         user_id: customerId,
         title,
-        body,
+        body: `Your delivery verification OTP has been sent for order ${orderDisplayId}.`,
         notif_type: 'order_update',
         metadata: { order_display_id: orderDisplayId, delivery_otp_hash: otpHash },
       });
