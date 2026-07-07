@@ -12,7 +12,9 @@ import {
 import { supabase } from '../config/db.js';
 import { ProfileModel } from '../models/ProfileModel.js';
 import { invalidateCachedProfile, invalidateCachedSupabaseProfile } from '../lib/profileCache.js';
+import { startTimer, endTimer } from '../lib/routeTiming.js';
 const router = express.Router();
+const routeTimer = startTimer('profileRoutes');
 
 // GET PROFILE
 router.get('/', authenticate, userLimiter, async (req, res) => {
@@ -375,6 +377,7 @@ router.delete('/admin/cache/:userId', authenticate, requireRole(['admin']), asyn
   }
 });
 
+endTimer(routeTimer);
 export default router;
 
 // Resolves #2046: DELETE /admin/cache/:userId endpoint
