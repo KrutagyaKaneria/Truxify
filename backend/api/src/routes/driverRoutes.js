@@ -13,6 +13,16 @@ import { generateAndStoreOtp, verifyOtp } from '../services/otpService.js';
 
 const router = express.Router();
 
+// Driver role authorization guard middleware
+function requireDriverRole(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required for driver access' });
+  }
+  if (req.user.role !== 'driver' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden: Driver role required', role: req.user.role });
+  }
+  next();
+}
 
 const loginOtpSchema = z.object({
   phone: z.string().trim().min(10).max(20),
