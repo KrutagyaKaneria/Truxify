@@ -220,7 +220,10 @@ export async function verifyDelivery({ orderId, driverId, otp }) {
     .single();
 
   if (guardErr) {
-    throw new DomainError(409, { error: 'Order was already cancelled or payment released.' });
+    if (guardErr.code === 'PGRST116') {
+      throw new DomainError(409, { error: 'Order was already cancelled or payment released.' });
+    }
+    throw new DomainError(500, { error: 'Failed to verify OTP.', details: guardErr.message });
   }
 
   let releaseTxHash = null;
