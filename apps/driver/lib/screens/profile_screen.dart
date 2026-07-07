@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 import '../controllers/app_controller.dart';
@@ -32,12 +33,12 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _driverName = driverName;
-  String _driverPhone = '+91 98765 43210';
-  String _driverEmail = 'kanish.jeba@truxify.com';
+  String _driverName = '';
+  String _driverPhone = '';
+  String _driverEmail = '';
   String _currentLanguage = 'English';
   String _walletAddress = '';
-  String _truckNumber = driverTruckNumber;
+  String _truckNumber = '';
 
   bool _isLoadingReputation = true;
   double? _platformRating;
@@ -49,6 +50,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     _loadWalletAddress();
     _fetchReputation();
+  }
+
+  Future<void> _loadSavedLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('driver_language');
+    if (saved != null && mounted) {
+      setState(() => _currentLanguage = saved);
+    }
   }
 
   Future<void> _loadWalletAddress() async {

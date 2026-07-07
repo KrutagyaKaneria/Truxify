@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
-import { ethers } from 'ethers';
+
 import { bidLimiter, userLimiter, safeIpKeyGenerator, createStore } from '../middleware/rateLimiter.js';
 import { supabase, redisClient, mongoDb } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
@@ -26,10 +26,8 @@ import {
   escrowRefund,
   buildDepositTx,
   recordDepositTx,
-  bookingIdFromUuid,
   submitEscrowRefund,
   confirmEscrowRefund,
-  ESCROW_MATIC_PER_PAISA,
 } from '../services/escrow.js';
 import { BidAcceptanceService, DomainError } from '../services/order/bidAcceptanceService.js';
 import { expireDeliveryOtps } from '../services/notificationService.js';
@@ -109,7 +107,6 @@ const telemetryLimiter = rateLimit({
 const resendOtpLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: process.env.NODE_ENV === 'test' ? 1000 : 5,
-  keyGenerator: (req) => req.user?.id || 'unauthenticated',
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || 'unknown',
@@ -121,7 +118,6 @@ const resendOtpLimiter = rateLimit({
 const changeDropLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: process.env.NODE_ENV === 'test' ? 1000 : 5,
-  keyGenerator: (req) => req.user?.id || 'unauthenticated',
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || 'unknown',
@@ -152,6 +148,13 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
     is_stackable, is_fragile, special_requirements,
     payment_method_id, upi_id
   } = req.body;
+
+  if (pickup_address && pickup_address.length > 200) {
+    return res.status(400).json({ error: 'pickup_address too long (max 200 chars)' });
+  }
+  if (drop_address && drop_address.length > 200) {
+    return res.status(400).json({ error: 'drop_address too long (max 200 chars)' });
+  }
 
   if (!pickup_address || pickup_lat == null || pickup_lng == null || !drop_address || drop_lat == null || drop_lng == null || !goods_type || weight_tonnes == null) {
     return res.status(400).json({ error: 'Missing required routing or cargo specification fields.' });
@@ -579,7 +582,7 @@ router.post('/:id/ratings', authenticate, userLimiter, requireRole(['customer'])
       return res.status(409).json({ error: 'A rating has already been submitted for this order.' });
     }
 
-    const { error: rpcErr } = await supabase.rpc('submit_rating_tx', {
+    const { data: ratingData, error: rpcErr } = await supabase.rpc('submit_rating_tx', {
       p_order_display_id: order.order_display_id,
       p_customer_id: req.user.id,
       p_driver_id: order.driver_id,
@@ -613,7 +616,7 @@ router.post('/:id/ratings', authenticate, userLimiter, requireRole(['customer'])
           failed_at: new Date().toISOString(),
           retry_count: 0,
           last_error: repErr.message,
-        }).then().catch(() => {});
+        }).catch((dbErr) => logger.error('[reputation] Failed to log failure:', dbErr.message));
       });
     } else {
       logger.warn(
@@ -718,20 +721,6 @@ router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requireRole(['
 // 12. UPDATE ORDER MILESTONE (ASSIGNED DRIVER)
 // ============================================================================
 router.put('/:id/milestones', authenticate, userLimiter, requireRole(['driver']), milestoneLimiter, validateParams(paramIdSchema), validateBody(updateMilestoneSchema), async (req, res) => {
-  const orderId = req.params.id;
-  const { milestone } = req.body;
-
-  const milestoneMap = {
-    'Truck Assigned': 'truck_assigned',
-    'En Route to Pickup': 'en_route_pickup',
-    'Arrived at Pickup': 'arrived_pickup',
-    'Goods Loaded': 'picked_up',
-    'In Transit': 'in_transit',
-    'Arriving': 'arriving',
-  };
-
-  if (milestone === 'Delivered') return res.status(400).json({ error: 'Cannot set Delivered milestone directly. Use /verify-delivery endpoint to confirm delivery.' });
-
   try {
     const { data: order, error: orderErr } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
     if (orderErr || !order) return res.status(404).json({ error: 'Order not found.' });
@@ -793,6 +782,9 @@ router.put('/:id/milestones', authenticate, userLimiter, requireRole(['driver'])
 
     res.json(response);
   } catch (err) {
+    if (err instanceof DomainError) {
+      return res.status(err.status).json(err.payload);
+    }
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -825,7 +817,7 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requireRole(['dri
       return res.status(err.status).json(err.payload);
     }
     logger.error('[verify-delivery] Exception:', err.message);
-    res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
