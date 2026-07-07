@@ -43,6 +43,19 @@ export function validatePagination(options = {}) {
     
     // Also provide a structured object
     req.pagination = { limit, offset };
+
+    // Intercept res.json to inject X-Total-Count header
+    const originalJson = res.json;
+    res.json = function (body) {
+      if (body && typeof body === 'object') {
+        const count = body.totalCount ?? body.count ?? body.total;
+        if (count !== undefined) {
+          res.setHeader('X-Total-Count', String(count));
+          res.setHeader('Access-Control-Expose-Headers', 'X-Total-Count');
+        }
+      }
+      return originalJson.call(this, body);
+    };
     
     next();
   };

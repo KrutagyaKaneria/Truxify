@@ -25,6 +25,7 @@ import loadRoutes from './routes/loadRoutes.js';
 import truckRoutes from './routes/truckRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import healthRoutes from './routes/healthRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 import logger from './middleware/logger.js';
 import { setupSwagger } from './config/swagger.js';
@@ -82,7 +83,7 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // Adjust if strict CSP is needed for frontend
+      scriptSrc: ["'self'"], // Strict CSP enforced
       objectSrc: ["'none'"],
       upgradeInsecureRequests: [],
     },
@@ -155,6 +156,7 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/driver/documents', documentRoutes);
 app.use('/api/trucks', truckRoutes);
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Setup Swagger Documentation
 setupSwagger(app);
@@ -177,6 +179,13 @@ app.use(sentryErrorHandler());
 
 // Error handling middleware
 app.use((err, req, res, next) => {
+  if (err && err.name === 'MulterError') {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    return res.status(status).json({
+      error: `File upload error: ${err.message}`,
+      code: err.code
+    });
+  }
   logger.error({ requestId: req.requestId, err }, 'Unhandled express exception');
   res.status(500).json({ error: 'Critical Internal Server Error.' });
 });

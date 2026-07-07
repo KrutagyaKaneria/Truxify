@@ -13,6 +13,16 @@ import { generateAndStoreOtp, verifyOtp } from '../services/otpService.js';
 
 const router = express.Router();
 
+// Driver role authorization guard middleware
+function requireDriverRole(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required for driver access' });
+  }
+  if (req.user.role !== 'driver' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden: Driver role required', role: req.user.role });
+  }
+  next();
+}
 
 const loginOtpSchema = z.object({
   phone: z.string().trim().min(10).max(20),
@@ -61,23 +71,6 @@ const verifyOtpLimiter = perPhoneLimiter({
   message: { error: 'Too many OTP verification attempts. Please try again later.' },
 });
 
-router.post('/otp/send', sendOtpLimiter, validateBody(otpSendSchema), async (req, res) => {
-  const { phone } = req.body;
-  const otp = await generateAndStoreOtp(phone);
-  if (!otp) {
-    return res.status(503).json({ error: 'OTP service unavailable. Please try again later.' });
-  }
-  return res.json({ message: 'OTP sent successfully.' });
-});
-
-router.post('/otp/verify', verifyOtpLimiter, validateBody(loginOtpSchema), async (req, res) => {
-  const { phone, otp } = req.body;
-  const valid = await verifyOtp(phone, otp);
-  if (!valid) {
-    return res.status(400).json({ error: 'Invalid OTP. Please try again.' });
-  }
-  return res.json({ message: 'OTP verified successfully.', verified: true });
-});
 
 // ============================================================================
 // 1. GET DRIVER STATS (DRIVER)
@@ -115,6 +108,7 @@ router.get('/stats', authenticate, userLimiter, requireRole(['driver']), async (
     });
 
   } catch (err) {
+    logger.error('Driver stats fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -143,6 +137,7 @@ router.put('/online', authenticate, userLimiter, requireRole(['driver']), valida
     });
 
   } catch (err) {
+    logger.error('Driver online status update error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -237,6 +232,7 @@ router.get('/earnings/summary', authenticate, userLimiter, requireRole(['driver'
     res.json(summary || []);
 
   } catch (err) {
+    logger.error('Driver earnings summary fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -283,6 +279,7 @@ router.get('/trips', authenticate, userLimiter, requireRole(['driver']), async (
       trips: trips || []
     });
   } catch (err) {
+    logger.error('Driver trips fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -302,6 +299,7 @@ router.get('/trips/:tripDisplayId/items', authenticate, userLimiter, requireRole
     if (error) return res.status(500).json({ error: 'Failed to fetch trip items.', details: error.message });
     res.json(items || []);
   } catch (err) {
+    logger.error('Driver trip items fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -321,6 +319,7 @@ router.get('/trips/:tripDisplayId/stops', authenticate, userLimiter, requireRole
     if (error) return res.status(500).json({ error: 'Failed to fetch trip stops.', details: error.message });
     res.json(stops || []);
   } catch (err) {
+    logger.error('Driver trip stops fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -340,6 +339,7 @@ router.get('/trips/:tripDisplayId/route-points', authenticate, userLimiter, requ
     if (error) return res.status(500).json({ error: 'Failed to fetch route points.', details: error.message });
     res.json(points || []);
   } catch (err) {
+    logger.error('Driver route points fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -380,6 +380,7 @@ router.get('/bids', authenticate, userLimiter, requireRole(['driver']), async (r
       bids: bids || []
     });
   } catch (err) {
+    logger.error('Driver bids fetch error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -430,6 +431,7 @@ router.post('/wallet/withdraw', authenticate, userLimiter, requireRole(['driver'
     });
 
   } catch (err) {
+    logger.error('Driver wallet withdrawal error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
