@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 import { createClient } from '@supabase/supabase-js';
 import { MongoClient } from 'mongodb';
 import Redis from 'ioredis';
@@ -185,6 +186,33 @@ if (serviceAccountRaw) {
 }
 
 export async function closeDbConnections() {
+  if (supabase) {
+    try {
+      await supabase.removeAllChannels();
+      logger.info('[shutdown] Supabase channels removed.');
+    } catch (err) {
+      logger.error({ err }, '[shutdown] Supabase close error');
+    }
+  }
+
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.removeAllChannels();
+      logger.info('[shutdown] Supabase Admin channels removed.');
+    } catch (err) {
+      logger.error({ err }, '[shutdown] Supabase Admin close error');
+    }
+  }
+
+  try {
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+      logger.info('[shutdown] Mongoose disconnected.');
+    }
+  } catch (err) {
+    logger.error({ err }, '[shutdown] Mongoose disconnect error');
+  }
+
   if (mongoClient) {
     try {
       await mongoClient.close();
