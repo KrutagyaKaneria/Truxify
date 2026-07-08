@@ -1,12 +1,8 @@
 import { ethers } from 'ethers';
+import { DomainError } from './domainError.js';
 
-export class DomainError extends Error {
-  constructor(status, payload) {
-    super(payload?.error || payload?.message || 'Domain Error');
-    this.status = status;
-    this.payload = payload;
-  }
-}
+// Re-export for backward compatibility — prefer importing from domainError.js
+export { DomainError } from './domainError.js';
 
 export class BidAcceptanceService {
   constructor({ orderRepository, buildDepositTxFn, escrowDepositFn, recordDepositTxFn, escrowRefundFn, logger, notificationDispatcher }) {
