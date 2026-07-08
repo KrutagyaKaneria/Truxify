@@ -27,6 +27,16 @@ import {
   submitEscrowRefund,
   confirmEscrowRefund,
 } from '../services/escrow.js';
+import { BidAcceptanceService, DomainError } from '../services/order/bidAcceptanceService.js';
+import { createOrder } from '../services/order/orderCreationService.js';
+import {
+  sendDeliveryOtpNotification,
+  storeDeliveryOtp,
+  getActiveDeliveryOtp,
+  verifyDeliveryOtp,
+  expireDeliveryOtps
+} from '../services/notificationService.js';
+import { predictDemand } from '../services/ml.js';
 import { BidAcceptanceService } from '../services/order/bidAcceptanceService.js';
 import { DomainError } from '../services/order/domainError.js';
 import { OrderValidationService } from '../services/order/orderValidationService.js';
@@ -151,6 +161,38 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
   }
 
   try {
+    const routeEstimate = await getRouteEstimate({
+      pickupLat: Number(pickup_lat),
+      pickupLng: Number(pickup_lng),
+      dropLat: Number(drop_lat),
+      dropLng: Number(drop_lng),
+    });
+    pricing = computeOrderPricing({
+      pickupLat:  Number(pickup_lat),
+      pickupLng:  Number(pickup_lng),
+      dropLat:    Number(drop_lat),
+      dropLng:    Number(drop_lng),
+      weightTonnes: Number(weight_tonnes),
+      roadDistanceKm: routeEstimate?.distanceKm,
+      isFragile:   Boolean(is_fragile),
+      isStackable: Boolean(is_stackable),
+    });
+  } catch (pricingErr) {
+    logger.error('Pricing computation error:', pricingErr.message);
+    return res.status(400).json({
+      error: 'Unable to compute freight pricing for the given route/cargo.',
+      details: pricingErr.message,
+    });
+  }
+
+  let estimatedPrice = null;
+  try {
+    const result = await createOrder({
+      orderData: req.body,
+      userId: req.user.id,
+      user: req.user,
+    });
+    return res.status(201).json(result);
     const { order } = await orderLifecycleService.createOrder(req.user.id, req.user.fullName || 'Customer', req.body);
     res.status(201).json({ message: 'Order created successfully and broadcasted to loads board.', order });
   } catch (err) {
@@ -158,7 +200,7 @@ router.post('/', authenticate, userLimiter, requireRole(['customer']), validateB
       return res.status(err.status).json(err.payload);
     }
     logger.error('Order creation exception:', err.message);
-    res.status(500).json({ error: 'Internal Server Error.' });
+    return res.status(500).json({ error: 'Internal Server Error.' });
   }
 });
 
