@@ -19,6 +19,8 @@ services:
       - ./backend/api:/app
       - /app/node_modules
     depends_on:
+      db:
+        condition: service_healthy
       mongo:
         condition: service_healthy
       redis:
@@ -49,11 +51,29 @@ services:
       retries: 5
       start_period: 30s
   db:
-    image: postgis/postgis:15-3.3-alpine
+       image: postgis/postgis:15-3.3-alpine
+       healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U postgres"]
+         interval: 10s
+         timeout: 5s
+         retries: 5
+         start_period: 10s
   mongo:
     image: mongo:6-jammy
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 volumes:
   mongo_data:
   postgres_data:
