@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSupabaseMock } from '../../helpers/supabaseMock.js';
 import { OrderRepository } from '../../../src/repositories/orderRepository.js';
 import { BidAcceptanceService, DomainError } from '../../../src/services/order/bidAcceptanceService.js';
-import { OrderRepository } from '../../../src/repositories/orderRepository.js';
 
 vi.mock('../../../src/services/escrow.js', () => ({
   escrowDeposit: vi.fn(),
@@ -27,7 +26,6 @@ describe('BidAcceptanceService', () => {
     escrowRefund.mockResolvedValue({ txHash: '0x456' });
 
     orderRepository = new OrderRepository(supabaseMock.supabase);
-    const orderRepository = new OrderRepository(supabaseMock.supabase);
 
     service = new BidAcceptanceService({
       orderRepository,

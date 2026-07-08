@@ -15,23 +15,22 @@ export class BidAcceptanceService {
   }
 
   async acceptBid({ orderId, bidId, customerId }) {
-    const orderResult = await this.orderRepository.findOrderById(orderId, 'order_display_id, customer_id');
-    const order = orderResult.data;
-    const { data: order } = await this.orderRepository.findOrderById(orderId, 'order_display_id, customer_id');
+    const { data: order, error: orderErr } = await this.orderRepository.findOrderById(orderId, 'order_display_id, customer_id');
+    if (orderErr) {
+      throw new DomainError(500, { error: 'Failed to retrieve order.', details: orderErr.message });
+    }
     if (!order || order.customer_id !== customerId) {
       throw new DomainError(403, { error: 'Access Denied: You do not own this order.' });
     }
 
-    const bidResult = await this.orderRepository.findBidById(bidId);
-    const bid = bidResult.data;
-    const { data: bid } = await this.orderRepository.findBidById(bidId);
+    const { data: bid, error: bidErr } = await this.orderRepository.findBidById(bidId);
+    if (bidErr) {
+      throw new DomainError(500, { error: 'Failed to retrieve bid.', details: bidErr.message });
+    }
     if (!bid || bid.status !== 'pending') {
       throw new DomainError(404, { error: 'Bid is not active or not found.' });
     }
 
-    const loadOfferResult = await this.orderRepository.findLoadOfferByOrderDisplayId(order.order_display_id);
-    const loadOffer = loadOfferResult.data;
-    const loadOfferErr = loadOfferResult.error;
     const { data: loadOffer, error: loadOfferErr } = await this.orderRepository.findLoadOfferByOrderDisplayId(order.order_display_id);
     if (loadOfferErr) {
       throw new DomainError(500, { error: 'Failed to verify bid ownership.', details: loadOfferErr.message });
@@ -46,7 +45,6 @@ export class BidAcceptanceService {
     const [driverDetailsResult, customerProfileResult] = await Promise.all([
       this.orderRepository.findDriverDetail(bid.driver_id),
       this.orderRepository.findCustomerWallet(customerId),
-      this.orderRepository.findProfile(customerId, 'polygon_wallet_address'),
     ]);
 
     const driverWallet = driverDetailsResult.data?.polygon_wallet_address ?? null;
@@ -59,23 +57,18 @@ export class BidAcceptanceService {
       });
     }
 
-    const [profileResult, detailsResult] = await Promise.all([
     const [{ data: profile }, { data: details }] = await Promise.all([
       this.orderRepository.findProfile(bid.driver_id, 'full_name'),
       this.orderRepository.findDriverDetailWithRating(bid.driver_id),
     ]);
-    const profile = profileResult.data;
-    const details = detailsResult.data;
 
     let truckInfo = null;
     if (details && details.truck_id) {
-      const truckResult = await this.orderRepository.findTruckWithDetails(details.truck_id);
-      const truckErr = truckResult.error;
-      const { data, error: truckErr } = await this.orderRepository.findTruckWithDetails(details.truck_id);
+      const { data: truck, error: truckErr } = await this.orderRepository.findTruckWithDetails(details.truck_id);
       if (truckErr) {
         this.logger?.error?.('Truck lookup error during bid accept:', truckErr.message);
       }
-      truckInfo = truckResult.data;
+      truckInfo = truck;
     }
 
     // Build the escrow deposit transaction

@@ -1,7 +1,8 @@
-import { redisClient } from '../config/db.js';
+import { supabase, redisClient } from '../config/db.js';
 import logger from '../middleware/logger.js';
 import { confirmEscrowRefund, submitEscrowRefund } from './escrow.js';
 import { acquireLock, releaseLock } from '../lib/redisLock.js';
+import { OrderRepository } from '../repositories/orderRepository.js';
 import os from 'os';
 
 const RECONCILIATION_EVENTS = {
@@ -34,9 +35,11 @@ const MAX_RETRIES = 10;
 let reconciliationTimer = null;
 let reconciliationRunning = false;
 
-export async function reconcilePendingEscrowRefunds(orderRepository) {
+export async function reconcilePendingEscrowRefunds(passedOrderRepository) {
   if (reconciliationRunning) return;
   reconciliationRunning = true;
+
+  const orderRepository = passedOrderRepository || new OrderRepository(supabase);
 
   try {
     // Acquire a global lock just to prevent multiple instances from pulling the exact same batch unnecessarily
@@ -104,21 +107,6 @@ export async function reconcilePendingEscrowRefunds(orderRepository) {
           escrow_refund_error: null,
           updated_at: refundedAt,
         }, [{ op: 'in', column: 'escrow_status', value: ['refund_pending', 'refund_failed'] }], 'id');
-        const { data: cur } = await supabase.from('orders').select('status').eq('id', order.id).maybeSingle();
-        if (cur && (cur.status === 'delivered' || cur.status === 'payment_released')) { logger.info('[escrow] Order already delivered - skip refund'); continue; }
-
-        const { error: updateError } = await supabase
-          .from('orders')
-          .update({
-            status: 'cancelled',
-            escrow_status: 'refunded',
-            refund_tx_hash: receipt.hash ?? refundTxHash,
-            escrow_refunded_at: refundedAt,
-            escrow_refund_error: null,
-            updated_at: refundedAt,
-          })
-          .eq('id', order.id)
-          .in('escrow_status', ['refund_pending', 'refund_failed']);
 
         if (updateError) {
           logger.error(

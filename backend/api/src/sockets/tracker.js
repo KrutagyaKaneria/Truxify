@@ -771,9 +771,6 @@ async function flushTelemetryBuffer() {
     } finally {
       currentFlushPromise = null;
       flushMutex = false;
-      }
-    } finally {
-      flushMutex = false;
     }
   })();
 
@@ -1118,7 +1115,7 @@ export const __testing = {
   flushTelemetryBuffer,
   removeClientFromAllSubscriptions,
   getTelemetryWriteBuffer() {
-    return telemetryWriteBuffer.toArray();
+    return telemetryWriteBuffer;
   },
   getTelemetryFlushBuffer() {
     return telemetryFlushBuffer;

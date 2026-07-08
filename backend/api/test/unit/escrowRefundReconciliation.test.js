@@ -30,10 +30,16 @@ vi.mock('../../src/lib/redisLock.js', () => {
 
 vi.mock('../../src/config/db.js', () => ({
   default: {
-    supabase: { from: (...args) => mocks.supabaseFrom(...args) },
+    supabase: {
+      from: (...args) => mocks.supabaseFrom(...args),
+      rpc: (...args) => mocks.supabaseFrom().rpc(...args),
+    },
     redisClient: { set: (...args) => mocks.redisSet(...args), del: (...args) => mocks.redisDel(...args) },
   },
-  supabase: { from: (...args) => mocks.supabaseFrom(...args) },
+  supabase: {
+    from: (...args) => mocks.supabaseFrom(...args),
+    rpc: (...args) => mocks.supabaseFrom().rpc(...args),
+  },
   redisClient: { set: (...args) => mocks.redisSet(...args), del: (...args) => mocks.redisDel(...args) },
 }));
 
@@ -65,6 +71,7 @@ function configureBuilder(orders) {
   mocks.supabaseFrom.mockReturnValue({
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
     not: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue({ data: orders, error: null }),
     rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
@@ -108,6 +115,7 @@ describe('reconcilePendingEscrowRefunds', () => {
     const builder = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
       not: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: [{ id: 'o2', order_display_id: 'O2', refund_tx_hash: '0xtx2' }], error: null }),
       rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
@@ -131,6 +139,7 @@ describe('reconcilePendingEscrowRefunds', () => {
     const errorBuilder = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
       not: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: [{ id: 'oE', order_display_id: 'OE', refund_tx_hash: '0xtxe' }], error: null }),
       rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
@@ -168,6 +177,7 @@ describe('reconcilePendingEscrowRefunds', () => {
     const errorBuilder = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
       not: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB connection error' } }),
       rpc: vi.fn().mockResolvedValue({ data: [], error: null }),

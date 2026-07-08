@@ -73,15 +73,15 @@ const bidAcceptanceService = new BidAcceptanceService({
   logger,
 });
 const deliveryVerificationService = new DeliveryVerificationService(orderRepository);
+const orderTimelineService = new OrderTimelineService({
+  supabase,
+  logger,
+});
+
 const orderLifecycleService = new OrderLifecycleService({
   orderRepository,
   orderTimelineService,
   bidAcceptanceService,
-});
-
-const orderTimelineService = new OrderTimelineService({
-  supabase,
-  logger,
 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
