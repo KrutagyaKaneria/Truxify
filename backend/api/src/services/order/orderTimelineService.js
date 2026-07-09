@@ -1,4 +1,5 @@
 import { DomainError } from './domainError.js';
+import { measureExecution } from '../../core/performanceMetrics.js';
 
 const DEFAULT_MILESTONES = [
   { milestone: 'Order Placed', completed: true, sort_order: 10 },
