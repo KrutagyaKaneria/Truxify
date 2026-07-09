@@ -518,58 +518,58 @@ export class OrderLifecycleService {
     if (!order) throw new DomainError(404, { error: 'Order not found.' });
     if (order.customer_id !== customerId) throw new DomainError(403, { error: 'Access Denied: You do not own this order.' });
 
-    const { data: otpCheck } = await this.orderRepository.findVerifiedDeliveryOtp(order.id);
-    if (otpCheck) {
-      throw new DomainError(409, { error: 'Cannot cancel: delivery OTP has already been verified.' });
+    const lockKey = `escrow_lock:${order.id}`;
+    const lockValue = await acquireLock(lockKey, 30000);
+    if (!lockValue) {
+      throw new DomainError(409, { error: 'Cancellation is currently being processed. Please try again later.' });
     }
 
-    if (order.status === 'cancelled' && order.escrow_status === 'refunded') {
-      return {
-        message: 'Order was already cancelled and refunded.',
-        cancellation_fee: order.cancellation_fee ?? 0,
-        order,
-      };
-    }
+    try {
+      const { data: otpCheck } = await this.orderRepository.findVerifiedDeliveryOtp(order.id);
+      if (otpCheck) {
+        throw new DomainError(409, { error: 'Cannot cancel: delivery OTP has already been verified.' });
+      }
 
-    const requiresRefund = ['funded', 'refund_pending', 'refund_failed'].includes(order.escrow_status);
-    let workingOrder = order;
+      if (order.status === 'cancelled' && order.escrow_status === 'refunded') {
+        return {
+          message: 'Order was already cancelled and refunded.',
+          cancellation_fee: order.cancellation_fee ?? 0,
+          order,
+        };
+      }
 
-    if (requiresRefund && (order.status !== 'cancelled' || order.escrow_status !== 'refund_pending')) {
-      const attemptAt = new Date().toISOString();
-      const { data: pendingOrder, error: pendingErr } = await this.orderRepository.updateOrderGuardStatus(
-        order.id,
-        {
-          status: 'cancelled',
-          cancellation_reason: reason ?? order.cancellation_reason,
-          escrow_status: 'refund_pending',
-          escrow_refund_error: null,
-          escrow_refund_attempts: (order.escrow_refund_attempts ?? 0) + 1,
-          escrow_refund_last_attempt_at: attemptAt,
-          updated_at: attemptAt,
-        },
-        ['delivered', 'payment_released']
-      );
+      const requiresRefund = ['funded', 'refund_pending', 'refund_failed'].includes(order.escrow_status);
+      let workingOrder = order;
 
-      if (pendingErr) {
-        if (pendingErr.code === 'PGRST116') {
-          throw new DomainError(409, { error: 'Order was already delivered or payment released. Cannot cancel.' });
+      if (requiresRefund && (order.status !== 'cancelled' || order.escrow_status !== 'refund_pending')) {
+        const attemptAt = new Date().toISOString();
+        const { data: pendingOrder, error: pendingErr } = await this.orderRepository.updateOrderGuardStatus(
+          order.id,
+          {
+            status: 'cancelled',
+            cancellation_reason: reason ?? order.cancellation_reason,
+            escrow_status: 'refund_pending',
+            escrow_refund_error: null,
+            escrow_refund_attempts: (order.escrow_refund_attempts ?? 0) + 1,
+            escrow_refund_last_attempt_at: attemptAt,
+            updated_at: attemptAt,
+          },
+          ['delivered', 'payment_released']
+        );
+
+        if (pendingErr) {
+          if (pendingErr.code === 'PGRST116') {
+            throw new DomainError(409, { error: 'Order was already delivered or payment released. Cannot cancel.' });
+          }
+          throw new DomainError(500, {
+            error: 'Failed to place the order into refund reconciliation.',
+            details: pendingErr.message,
+          });
         }
-        throw new DomainError(500, {
-          error: 'Failed to place the order into refund reconciliation.',
-          details: pendingErr.message,
-        });
-      }
-      workingOrder = pendingOrder;
-    }
-
-    if (requiresRefund) {
-      const lockKey = `escrow_lock:${workingOrder.id}`;
-      const lockValue = await acquireLock(lockKey, 30000);
-      if (!lockValue) {
-        throw new DomainError(409, { error: 'Refund is currently being processed. Please try again later.' });
+        workingOrder = pendingOrder;
       }
 
-      try {
+      if (requiresRefund) {
         let refundTxHash = workingOrder.refund_tx_hash ?? null;
 
         try {
@@ -657,41 +657,41 @@ export class OrderLifecycleService {
             },
           };
         }
-      } finally {
-        await releaseLock(lockKey, lockValue);
+      } else if (order.escrow_booking_id) {
+        logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);
       }
-    } else if (order.escrow_booking_id) {
-      logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);
-    }
 
-    const updatePayload = {
-      status: 'cancelled',
-      cancellation_reason: reason,
-      updated_at: new Date().toISOString(),
-    };
+      const updatePayload = {
+        status: 'cancelled',
+        cancellation_reason: reason,
+        updated_at: new Date().toISOString(),
+      };
 
-    const { data: updatedOrder, error: updateErr } = await this.orderRepository.updateOrderGuardStatus(
-      order.id,
-      updatePayload,
-      ['delivered', 'payment_released', 'cancelled']
-    );
+      const { data: updatedOrder, error: updateErr } = await this.orderRepository.updateOrderGuardStatus(
+        order.id,
+        updatePayload,
+        ['delivered', 'payment_released', 'cancelled']
+      );
 
-    if (updateErr) {
-      if (updateErr.code === 'PGRST116') {
-        throw new DomainError(409, { error: 'Order was already cancelled, delivered, or payment released. Cannot cancel.' });
+      if (updateErr) {
+        if (updateErr.code === 'PGRST116') {
+          throw new DomainError(409, { error: 'Order was already cancelled, delivered, or payment released. Cannot cancel.' });
+        }
+        throw new DomainError(500, { error: 'Failed to cancel order.', details: updateErr.message });
       }
-      throw new DomainError(500, { error: 'Failed to cancel order.', details: updateErr.message });
+
+      const cancellationFee = updatedOrder?.cancellation_fee ?? 0;
+
+      await this.orderTimelineService.markMilestoneCompleted(order.order_display_id, 'Order Placed');
+      await expireDeliveryOtps(order.id);
+
+      return {
+        status: 200,
+        body: { message: 'Order cancelled successfully.', cancellation_fee: cancellationFee, order: updatedOrder },
+      };
+    } finally {
+      await releaseLock(lockKey, lockValue);
     }
-
-    const cancellationFee = updatedOrder?.cancellation_fee ?? 0;
-
-    await this.orderTimelineService.markMilestoneCompleted(order.order_display_id, 'Order Placed');
-    await expireDeliveryOtps(order.id);
-
-    return {
-      status: 200,
-      body: { message: 'Order cancelled successfully.', cancellation_fee: cancellationFee, order: updatedOrder },
-    };
   }
 
   async confirmDeposit(orderId, userId, txHash) {
