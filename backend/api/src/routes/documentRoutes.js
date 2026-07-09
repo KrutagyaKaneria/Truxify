@@ -1,7 +1,8 @@
 import express from 'express';
 import multer from 'multer';
 import { uploadDriverDocument } from '../controllers/documentController.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
+import { requirePolicy } from '../middleware/requirePolicy.js';
 
 const router = express.Router();
 
@@ -14,6 +15,6 @@ const upload = multer({
 });
 
 // POST /api/driver/documents
-router.post('/', authenticate, requireRole(['driver']), upload.single('document'), uploadDriverDocument);
+router.post('/', authenticate, requirePolicy('driver:view-stats'), upload.single('document'), uploadDriverDocument);
 
 export default router;
