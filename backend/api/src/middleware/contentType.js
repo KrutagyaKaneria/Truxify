@@ -7,13 +7,18 @@ export function requireJsonContent(req, res, next) {
       return res.status(415).json({ error: 'Unsupported Media Type. Content-Type header is missing.' });
     }
 
+    // Compare the base media type exactly (ignoring parameters such as
+    // charset). A substring match previously let malformed values like
+    // `text/plain; application/json` or `application/jsonx` through.
+    const mimeType = contentType.split(';')[0].trim().toLowerCase();
+
     // Allow application/json
-    if (contentType.includes('application/json')) {
+    if (mimeType === 'application/json') {
       return next();
     }
 
     // Allow multipart/form-data for specific routes (like document uploads)
-    if (contentType.includes('multipart/form-data')) {
+    if (mimeType === 'multipart/form-data') {
       return next();
     }
 
