@@ -564,7 +564,18 @@ export class OrderLifecycleService {
 
     if (requiresRefund) {
       const lockKey = `escrow_lock:${workingOrder.id}`;
-      const lockValue = await acquireLock(lockKey, 30000);
+
+      let lockValue;
+      try {
+        lockValue = await acquireLock(lockKey, 30000);
+      } catch (lockErr) {
+        logger.error('[escrow] Lock service unavailable during cancellation for order', orderId, ':', lockErr.message);
+        throw new DomainError(503, {
+          error: 'Refund processing is temporarily unavailable. Please try again shortly.',
+          retryable: true,
+        });
+      }
+      
       if (!lockValue) {
         throw new DomainError(409, { error: 'Refund is currently being processed. Please try again later.' });
       }
