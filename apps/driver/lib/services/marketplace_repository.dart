@@ -63,6 +63,17 @@ class MarketplaceRepository {
     }
   }
 
+  Future<Map<String, dynamic>> fetchDemandHeatmap() async {
+    final path = '/api/demand-heatmap';
+    try {
+      final decoded = await _apiClient.get(path);
+      return decoded as Map<String, dynamic>;
+    } catch (e) {
+      if (e is ApiException) throw StateError(e.message);
+      rethrow;
+    }
+  }
+
   Future<DriverBid> submitBid({
     required String loadId,
     required num amount,

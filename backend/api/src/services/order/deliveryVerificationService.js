@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import { redisClient } from '../../config/db.js';
-import { DomainError } from './bidAcceptanceService.js';
 import { supabase, redisClient } from '../../config/db.js';
 import { DomainError } from './domainError.js';
 import {
