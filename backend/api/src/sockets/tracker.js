@@ -155,6 +155,7 @@ let telemetryFlushTimeout = null;
 let wsServer = null;
 let wsHeartbeatInterval = null;
 let telemetryMonitorInterval = null;
+const HEARTBEAT_INTERVAL_MS = parseInt(process.env.WS_HEARTBEAT_INTERVAL_MS, 10) || 180000; // 3 minutes
 
 // Observability counters
 let telemetryTotalFlushed = 0;
@@ -217,6 +218,11 @@ export function rejectWebSocketUpgrade(socket) {
  * Initialize WebSockets Server and bind event handlers
  */
 export function initWebSocketServer(server, orderRepository) {
+  if (wsServer) {
+    logger.warn('[initWebSocketServer] Already initialized — skipping duplicate call to prevent connection leaks.');
+    return;
+  }
+
   _orderRepository = orderRepository;
   const wss = new WebSocketServer({ noServer: true });
   wsServer = wss;
@@ -381,7 +387,7 @@ export function initWebSocketServer(server, orderRepository) {
       ws.isAlive = false;
       ws.ping();
     });
-  }, 30000);
+  }, HEARTBEAT_INTERVAL_MS);
 
   wss.on('close', () => {
     if (wsHeartbeatInterval) {
