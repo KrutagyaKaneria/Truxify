@@ -3,8 +3,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 
 import { bidLimiter, userLimiter, safeIpKeyGenerator, createStore } from '../middleware/rateLimiter.js';
-import { redisClient, mongoDb } from '../config/db.js';
-import { supabase } from '../config/db.js';
+import { redisClient, mongoDb, supabase } from '../config/db.js';
 import { OrderRepository } from '../repositories/orderRepository.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
