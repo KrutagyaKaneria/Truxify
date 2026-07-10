@@ -29,7 +29,7 @@ import {
   submitEscrowRefund,
   confirmEscrowRefund,
 } from '../services/escrow.js';
-import { BidAcceptanceService, DomainError } from '../services/order/bidAcceptanceService.js';
+import { BidAcceptanceService } from '../services/order/bidAcceptanceService.js';
 import { DeliveryVerificationService } from '../services/order/deliveryVerificationService.js';
 import { expireDeliveryOtps } from '../services/notificationService.js';
 import { OrderTimelineService } from '../services/order/orderTimelineService.js';
