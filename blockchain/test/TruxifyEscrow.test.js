@@ -1,7 +1,7 @@
 import hre from "hardhat";
 const { ethers } = hre;
 import { expect } from "chai";
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
 describe("TruxifyEscrow", function () {
 
@@ -157,6 +157,135 @@ describe("TruxifyEscrow", function () {
       const booking = await escrow.getBooking(1);
       expect(booking.status).to.equal(2); // Cancelled
       expect(booking.amount).to.equal(0);
+    });
+  });
+
+  // ─── Security: Zero Timestamp Protection ─────────────────────────────────
+  describe("Zero timestamp protection", function () {
+    it("blocks emergency recovery when releaseTimestamp is 0 (never set)", async function () {
+      const { escrow, owner, driver } = await loadFixture(deployEscrowFixture);
+
+      await expect(
+        escrow.connect(owner).emergencyRecover(driver.address, 1)
+      ).to.be.revertedWith("No pending withdrawal");
+    });
+
+    it("blocks emergency recovery after withdraw resets timestamp to 0", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      const amount = ethers.parseEther("1.0");
+      await escrow.connect(customer).createBooking(1, driver.address, { value: amount });
+      await escrow.connect(owner).releasePayment(1);
+      await escrow.connect(driver).withdraw();
+
+      // Timestamp is now 0 — emergencyRecover must be blocked
+      await expect(
+        escrow.connect(owner).emergencyRecover(driver.address, 1)
+      ).to.be.revertedWith("No pending withdrawal");
+    });
+
+    it("allows emergency recovery after legitimate timeout expiry", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      const amount = ethers.parseEther("1.0");
+      await escrow.connect(customer).createBooking(1, driver.address, { value: amount });
+      await escrow.connect(owner).releasePayment(1);
+
+      const WITHDRAWAL_TIMEOUT = await escrow.WITHDRAWAL_TIMEOUT();
+      await time.increase(WITHDRAWAL_TIMEOUT + 1n);
+
+      await escrow.connect(owner).emergencyRecover(driver.address, amount);
+      expect(await ethers.provider.getBalance(driver.address)).to.be.gt(0n);
+    });
+
+    it("reverts emergency recovery before timeout", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      const amount = ethers.parseEther("1.0");
+      await escrow.connect(customer).createBooking(1, driver.address, { value: amount });
+      await escrow.connect(owner).releasePayment(1);
+
+      await expect(
+        escrow.connect(owner).emergencyRecover(driver.address, amount)
+      ).to.be.revertedWith("Withdrawal period active");
+    });
+  });
+
+  // ─── Security: Concurrent Booking Timestamp ──────────────────────────────
+  describe("Concurrent booking timestamp handling", function () {
+    it("preserves earliest deadline for driver with multiple payment releases", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      // First booking for driver — sets deadline D1
+      await escrow.connect(customer).createBooking(1, driver.address, { value: ethers.parseEther("1.0") });
+      await escrow.connect(owner).releasePayment(1);
+      const deadline1 = await escrow.releaseTimestamps(driver.address);
+
+      // Advance time a bit
+      await time.increase(3600); // 1 hour
+
+      // Second booking for same driver — must NOT extend deadline
+      await escrow.connect(customer).createBooking(2, driver.address, { value: ethers.parseEther("2.0") });
+      await escrow.connect(owner).releasePayment(2);
+      const deadline2 = await escrow.releaseTimestamps(driver.address);
+
+      expect(deadline2).to.equal(deadline1);
+    });
+
+    it("preserves earliest deadline for customer with multiple cancellations", async function () {
+      const { escrow, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      // First booking for customer — sets deadline D1
+      await escrow.connect(customer).createBooking(1, driver.address, { value: ethers.parseEther("1.0") });
+      await escrow.connect(customer).cancelBooking(1);
+      const deadline1 = await escrow.releaseTimestamps(customer.address);
+
+      // Advance time
+      await time.increase(3600);
+
+      // Second booking for same customer — must NOT extend deadline
+      await escrow.connect(customer).createBooking(2, driver.address, { value: ethers.parseEther("2.0") });
+      await escrow.connect(customer).cancelBooking(2);
+      const deadline2 = await escrow.releaseTimestamps(customer.address);
+
+      expect(deadline2).to.equal(deadline1);
+    });
+
+    it("sets fresh timestamp after withdraw clears existing one", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      // First booking — release, withdraw (clears timestamp)
+      await escrow.connect(customer).createBooking(1, driver.address, { value: ethers.parseEther("1.0") });
+      await escrow.connect(owner).releasePayment(1);
+      await escrow.connect(driver).withdraw();
+
+      // Timestamp should be 0 after withdraw
+      expect(await escrow.releaseTimestamps(driver.address)).to.equal(0n);
+
+      // Second booking — must set a fresh timestamp
+      await escrow.connect(customer).createBooking(2, driver.address, { value: ethers.parseEther("2.0") });
+      await escrow.connect(owner).releasePayment(2);
+      const newDeadline = await escrow.releaseTimestamps(driver.address);
+      expect(newDeadline).to.be.gt(0n);
+    });
+
+    it("allows withdraw after each booking independently", async function () {
+      const { escrow, owner, customer, driver } = await loadFixture(deployEscrowFixture);
+
+      await escrow.connect(customer).createBooking(1, driver.address, { value: ethers.parseEther("1.0") });
+      await escrow.connect(owner).releasePayment(1);
+
+      await escrow.connect(customer).createBooking(2, driver.address, { value: ethers.parseEther("2.0") });
+      await escrow.connect(owner).releasePayment(2);
+
+      // Both funds should be withdrawable
+      const pending = await escrow.pendingWithdrawals(driver.address);
+      expect(pending).to.equal(ethers.parseEther("3.0"));
+
+      const balanceBefore = await ethers.provider.getBalance(driver.address);
+      await escrow.connect(driver).withdraw();
+      const balanceAfter = await ethers.provider.getBalance(driver.address);
+      expect(balanceAfter).to.be.gt(balanceBefore);
     });
   });
 });
