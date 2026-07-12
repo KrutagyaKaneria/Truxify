@@ -58,6 +58,7 @@ class TruckRepository {
 
   Future<TruckMaintenanceTicket?> updateTicketStatus({
     required int ticketId,
+    required String driverId,
     required String status,
     String? resolutionNotes,
   }) async {
@@ -70,9 +71,10 @@ class TruckRepository {
         .from('truck_maintenance_tickets')
         .update(update)
         .eq('id', ticketId)
+        .eq('driver_id', driverId)
         .select()
-        .single();
-    return TruckMaintenanceTicket.fromJson(response);
+        .maybeSingle();
+    return response == null ? null : TruckMaintenanceTicket.fromJson(response);
   }
 
   Future<bool> updateTruckMileage({
