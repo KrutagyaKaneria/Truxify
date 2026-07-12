@@ -1,4 +1,5 @@
 import { DomainError } from './domainError.js';
+import { measureExecution } from '../../core/performanceMetrics.js';
 
 const DEFAULT_MILESTONES = [
   { milestone: 'Order Placed', completed: true, sort_order: 10 },
@@ -51,6 +52,8 @@ export class OrderTimelineService {
     const { error } = await this.orderRepository.updateTimelineMilestone(orderDisplayId, milestone, { completed: false, milestone_time: null });
     if (error) {
       // Silently fail on rollback — the caller handles the primary error
+      this.logger?.error?.('Timeline Reset Error:', error.message);
+      throw new DomainError(500, { error: 'Failed to reset order timeline.', details: error.message });
     }
   }
 
@@ -63,7 +66,12 @@ export class OrderTimelineService {
       sort_order: 25,
     }]);
     if (error) {
+<<<<<<< feature/dependency-injection-services
       // Silently fail — change-drop is best-effort for the timeline
+=======
+      this.logger?.error?.('Failed to update timeline for change-drop:', error.message);
+      throw new DomainError(500, { error: 'Failed to record drop-change event.', details: error.message });
+>>>>>>> main
     }
   }
 
@@ -72,6 +80,8 @@ export class OrderTimelineService {
     const { error } = await this.orderRepository.updateTimelineMilestone(orderDisplayId, 'Order Placed', { completed: true, milestone_time: time });
     if (error) {
       // Silently fail — cancel continues even if timeline update fails
+      this.logger?.error?.('Failed to update Order Placed milestone on cancel:', error.message);
+      throw new DomainError(500, { error: 'Failed to update Order Placed milestone.', details: error.message });
     }
   }
 
@@ -79,6 +89,8 @@ export class OrderTimelineService {
     const { error } = await this.orderRepository.deleteTimeline(orderDisplayId);
     if (error) {
       // Silently fail — cleanup is best-effort
+      this.logger?.error?.('Failed to delete order timeline:', error.message);
+      throw new DomainError(500, { error: 'Failed to delete order timeline.', details: error.message });
     }
   }
 

@@ -17,6 +17,13 @@ import {
 } from './orderNotificationService.js';
 import { escrowRelease } from '../escrow.js';
 import { DomainError } from './domainError.js';
+<<<<<<< feature/dependency-injection-services
+=======
+import { OrderTimelineService } from './orderTimelineService.js';
+import { measureExecution } from '../../core/performanceMetrics.js';
+
+const orderTimelineService = new OrderTimelineService({ supabase, logger });
+>>>>>>> main
 
 export class OrderMilestoneService {
   constructor(args = {}) {
@@ -27,6 +34,7 @@ export class OrderMilestoneService {
   }
 
   async updateMilestone({ orderId, milestone, driverId }) {
+    return measureExecution('OrderMilestoneService.updateMilestone', async () => {
     const milestoneMap = {
       'Truck Assigned': 'truck_assigned',
       'En Route to Pickup': 'en_route_pickup',
@@ -104,9 +112,11 @@ export class OrderMilestoneService {
     }
 
     return { order: updatedOrder, milestone, status };
+    });
   }
 
   async verifyDelivery({ orderId, otp, driverId }) {
+    return measureExecution('OrderMilestoneService.verifyDelivery', async () => {
     if (await checkOtpLockout(orderId)) {
       throw new DomainError(429, {
         error: `Too many failed OTP attempts. Verification is locked for ${OTP_LOCKOUT_MINUTES} minutes.`,
@@ -237,5 +247,6 @@ export class OrderMilestoneService {
     }
 
     return { status: 200, body: { message: 'Delivery verified successfully! Payment released to driver.' } };
+    });
   }
 }
