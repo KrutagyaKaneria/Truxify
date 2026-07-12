@@ -271,7 +271,11 @@ export async function recordDepositTx (bookingId, txHash, expectedSenderAddress 
   // We can still verify the on-chain sender (tx.from) is expected.
 
   // If an expected sender address was provided (from order record), verify it matches.
-  if (expectedSenderAddress && tx.from.toLowerCase() !== expectedSenderAddress.toLowerCase()) {
+  // Reject if no wallet is on file rather than silently skipping sender verification (fail closed).
+  if (!expectedSenderAddress) {
+    return { error: 'No registered customer wallet on file to verify transaction sender against' }
+  }
+  if (tx.from.toLowerCase() !== expectedSenderAddress.toLowerCase()) {
     return { error: 'Transaction sender does not match the registered customer wallet for this order' }
   }
 
