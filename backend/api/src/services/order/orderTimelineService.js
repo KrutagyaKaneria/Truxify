@@ -107,6 +107,7 @@ export class OrderTimelineService {
 
     if (error) {
       this.logger?.error?.('Timeline Reset Error:', error.message);
+      throw new DomainError(500, { error: 'Failed to reset order timeline.', details: error.message });
     }
   }
 
@@ -135,7 +136,8 @@ export class OrderTimelineService {
     }
 
     if (error) {
-      this.logger?.warn?.('Failed to update timeline for change-drop:', error.message);
+      this.logger?.error?.('Failed to update timeline for change-drop:', error.message);
+      throw new DomainError(500, { error: 'Failed to record drop-change event.', details: error.message });
     }
   }
 
@@ -156,6 +158,7 @@ export class OrderTimelineService {
 
     if (error) {
       this.logger?.error?.('Failed to update Order Placed milestone on cancel:', error.message);
+      throw new DomainError(500, { error: 'Failed to update Order Placed milestone.', details: error.message });
     }
   }
 
@@ -174,6 +177,7 @@ export class OrderTimelineService {
 
     if (error) {
       this.logger?.error?.('Failed to delete order timeline:', error.message);
+      throw new DomainError(500, { error: 'Failed to delete order timeline.', details: error.message });
     }
   }
 
