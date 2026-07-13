@@ -501,9 +501,6 @@ router.get('/:id/timeline', authenticate, userLimiter, validateParams(paramIdSch
     if (order.customer_id !== req.user.id && order.driver_id !== req.user.id) {
       return res.status(403).json({ error: 'Access Denied: You do not own or are not assigned to this order.' });
     }
-    const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, 'customer_id, driver_id, order_display_id');
-    orderValidationService.assertOrderFound(order);
-    orderValidationService.assertOrderAccess(order, req.user);
 
     const timeline = await orderTimelineService.getOrderTimeline(order.order_display_id);
     res.json(timeline);
