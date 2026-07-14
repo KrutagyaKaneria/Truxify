@@ -83,6 +83,11 @@ const POLICIES = {
   'device:register':           {},
   'device:unregister':         {},
   'device:view-platforms':     {},
+
+  'webrtc:view-stats':         { roles: [ROLES.ADMIN] },
+  'webrtc:view-nearby':        { roles: [ROLES.DRIVER, ROLES.ADMIN] },
+  'webrtc:view-offline':       { roles: [ROLES.DRIVER, ROLES.ADMIN] },
+  'webrtc:sync-offline':       { roles: [ROLES.DRIVER, ROLES.ADMIN] },
 };
 
 export class PolicyEngine {
