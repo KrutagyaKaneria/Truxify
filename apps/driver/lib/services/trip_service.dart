@@ -128,7 +128,9 @@ class TripService {
     final path = '/api/trips/${_encodePathSegment(tripDisplayId)}/items';
     try {
       final body = await _apiClient.get(path);
-      if (body is! List) return [];
+      if (body is! List) {
+        throw StateError('Unexpected trip items response type');
+      }
       return List<Map<String, dynamic>>.from(body);
     } catch (e) {
       if (e is ApiException) throw StateError(e.message);
