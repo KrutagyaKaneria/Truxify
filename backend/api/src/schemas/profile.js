@@ -14,7 +14,7 @@ export const updateProfileSchema = z.object({
 
 export const profileQuerySchema = z.object({
   role: z.enum(['customer', 'driver', 'admin']).optional(),
-  is_active: z.string().transform(v => v === 'true').optional(),
+  is_active: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   search: z.string().max(100).optional(),
   page: z.string().transform(v => Math.max(1, parseInt(v) || 1)).optional(),
   limit: z.string().transform(v => Math.min(100, Math.max(1, parseInt(v) || 20))).optional(),
