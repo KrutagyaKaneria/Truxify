@@ -10,12 +10,12 @@ const DEFAULT_ML_ENGINE_URL = 'http://localhost:8001';
 
 // Startup validation
 if (!process.env.ML_API_KEY) {
-    logger.warn('[ML] WARNING: ML_API_KEY is not set. ML features will be unavailable.');
+    logger.warn('[ML] WARNING: ML_API_KEY is not set. All ML API endpoints will return 503. Set ML_API_KEY in your environment.');
 }
 
 function guardMlApiKey() {
   if (!process.env.ML_API_KEY) {
-    throw new Error("[ML] ML_API_KEY is not configured. ML features are unavailable.");
+    throw new Error("[ML] ML_API_KEY is not configured. All ML endpoints will return 503. Set ML_API_KEY to enable ML features.");
   }
 }
 
