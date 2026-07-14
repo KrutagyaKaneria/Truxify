@@ -130,8 +130,20 @@ class WebRTCSignalingServer {
 
   async relayWebRTCMessage(fromPeerId, message) {
     const { targetPeerId, data } = message;
+    const sourcePeer = this.peers.get(fromPeerId);
     const targetPeer = this.peers.get(targetPeerId);
-    if (targetPeer && targetPeer.ws.readyState === 1) {
+
+    if (!sourcePeer || !targetPeer) {
+      logger.warn(`WebRTC relay blocked for missing peer: ${fromPeerId} -> ${targetPeerId}`);
+      return;
+    }
+
+    if (sourcePeer.meshId !== targetPeer.meshId) {
+      logger.warn(`WebRTC relay blocked across meshes: ${fromPeerId} -> ${targetPeerId}`);
+      return;
+    }
+
+    if (targetPeer.ws.readyState === 1) {
       this.sendToPeer(targetPeerId, {
         ...data,
         fromPeerId
