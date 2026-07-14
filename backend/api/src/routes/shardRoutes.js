@@ -1,11 +1,14 @@
 import express from 'express';
 import shardManager from '../services/sharding/ShardManager.js';
 import { shardMiddleware, crossShardQuery } from '../middleware/shardMiddleware.js';
+import { authenticate } from '../middleware/auth.js';
+import { requirePolicy } from '../middleware/requirePolicy.js';
+import { userLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
 // Get shard status
-router.get('/shards/status', async (req, res) => {
+router.get('/shards/status', authenticate, userLimiter, requirePolicy('shard:view'), async (req, res) => {
   try {
     const status = await shardManager.healthCheck();
     res.json({
@@ -22,7 +25,7 @@ router.get('/shards/status', async (req, res) => {
 });
 
 // Get shard for location
-router.get('/shards/location', async (req, res) => {
+router.get('/shards/location', authenticate, userLimiter, requirePolicy('shard:view'), async (req, res) => {
   try {
     const { lat, lng } = req.query;
     if (!lat || !lng) {
@@ -52,7 +55,7 @@ router.get('/shards/location', async (req, res) => {
 });
 
 // Get orders from specific shard
-router.get('/shards/:shardName/orders', shardMiddleware, async (req, res) => {
+router.get('/shards/:shardName/orders', authenticate, userLimiter, requirePolicy('shard:query-orders'), shardMiddleware, async (req, res) => {
   try {
     const { shardName } = req.params;
     const connection = await shardManager.getShardConnection(shardName);
@@ -73,7 +76,7 @@ router.get('/shards/:shardName/orders', shardMiddleware, async (req, res) => {
 });
 
 // Cross-shard query
-router.get('/shards/all/orders', crossShardQuery, async (req, res) => {
+router.get('/shards/all/orders', authenticate, userLimiter, requirePolicy('shard:query-orders'), crossShardQuery, async (req, res) => {
   try {
     const results = await req.executeCrossShard(
       'SELECT COUNT(*) as total FROM orders'

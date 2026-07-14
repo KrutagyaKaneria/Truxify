@@ -77,6 +77,9 @@ const POLICIES = {
   'admin:view-dashboard':      { roles: [ROLES.ADMIN] },
   'admin:invalidate-cache':    { roles: [ROLES.ADMIN] },
 
+  'shard:view':                { roles: [ROLES.ADMIN] },
+  'shard:query-orders':        { roles: [ROLES.ADMIN] },
+
   'trip:sync-events':          {},
   'trip:view-events':          { ownership: (u, r) => r?.trip && (u.role === ROLES.ADMIN || r.trip.driver_id === u.id || r.trip.customer_id === u.id) },
 
