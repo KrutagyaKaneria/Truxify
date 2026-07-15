@@ -57,6 +57,7 @@ import { fraudDetectionMiddleware, networkAnalysisMiddleware } from './middlewar
 // ============================================================================
 import zkpRoutes from './routes/zkp.routes.js'
 
+
 // ============================================================================
 // 🆕 MULTI-CLOUD DISASTER RECOVERY
 // ============================================================================
@@ -68,6 +69,7 @@ import multiCloudService from '../../dr/multi-cloud.service.js'
 // ============================================================================
 import tracing from './tracing/tracing.js'
 import { tracingMiddleware } from './middleware/tracingMiddleware.js'
+
 
 import logger from './middleware/logger.js'
 import { setupSwagger } from './config/swagger.js'
@@ -173,6 +175,7 @@ if (!process.env.KYC_VERIFIER_CONTRACT) {
 if (!process.env.PRIVATE_KEY) {
   logger.warn('⚠️ PRIVATE_KEY not set. Cannot sign ZK proof transactions.')
 }
+
 
 // ============================================================================
 // 🆕 MULTI-CLOUD DR VALIDATION
@@ -463,6 +466,7 @@ app.get('/api/tracing/health', (req, res) => {
   })
 })
 
+
 // Setup Swagger Documentation
 setupSwagger(app)
 
@@ -522,7 +526,12 @@ server.listen(PORT, () => {
   logger.info(`🆕 WebRTC P2P Mesh Network available at ws://localhost:${PORT}/webrtc`)
   logger.info(`🆕 Fraud Detection enabled with threshold: ${process.env.FRAUD_THRESHOLD || 0.7}`)
   logger.info(`🆕 ZK-Proof KYC Verification enabled with contract: ${process.env.KYC_VERIFIER_CONTRACT || 'not-deployed'}`)
+
   logger.info(`☁️ Multi-Cloud Disaster Recovery enabled (Active: ${process.env.ACTIVE_CLOUD || 'aws'})`)
+
+
+  logger.info(`☁️ Multi-Cloud Disaster Recovery enabled (Active: ${process.env.ACTIVE_CLOUD || 'aws'})`)
+
   startEscrowRefundReconciliation(orderRepository)
   startEscrowReleaseReconciliation()
   startReputationReconciliation()

@@ -60,7 +60,7 @@ traffic_pipeline = TrafficPipeline(db_url, redis_url)
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     ml_api_key = os.environ.get("ML_API_KEY")
     if not ml_api_key:
-        logger.warning("ML_API_KEY not set - ML engine running without authentication")
+        logger.warning("ML_API_KEY not set - ML engine is unavailable (503)")
         raise HTTPException(status_code=503, detail="ML engine not configured: missing ML_API_KEY")
     if not x_api_key or not hmac.compare_digest(x_api_key, ml_api_key):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -95,14 +95,13 @@ app.add_middleware(
 async def startup_event():
     from .models.base import preload_all_models
     logger.info("ML Engine starting, pre-loading models...")
-    loaded_models.add("demand_forecast")
-    loaded_models.add("price_prediction")
-    loaded_models.add("eta_prediction")
-    loaded_models.add("driver_profit")
-    # 🆕 Load traffic model
-    loaded_models.add("traffic_eta")
-    await preload_all_models()
-    logger.info("ML Engine startup complete")
+    persisted_models = await preload_all_models()
+    loaded_models.update(persisted_models)
+    if eta_predictor.model is not None:
+        loaded_models.add("eta_prediction")
+    if traffic_pipeline.model is not None:
+        loaded_models.add("traffic_eta")
+    logger.info("ML Engine startup complete — loaded: %s", sorted(loaded_models))
 
 
 # ---------------------------------------------------------------------------
@@ -421,11 +420,12 @@ async def root(_auth=Depends(verify_api_key)):
 async def health():
     """Health check endpoint for Docker container orchestration."""
     models = {
-        "eta_predictor": eta_predictor.model is not None,
         "demand_forecast": model_exists(DEMAND_MODEL_NAME),
         "price_forecast": model_exists(PRICE_MODEL_NAME),
         "driver_profit": model_exists("driver_profit"),
-        # 🆕 Traffic ETA model
+        "trust_scorer": model_exists("trust_scorer"),
+        "collaborative_filter": model_exists("collaborative_filter"),
+        "eta_predictor": eta_predictor.model is not None,
         "traffic_eta": traffic_pipeline.model is not None,
     }
     all_ready = all(models.values())
