@@ -1,5 +1,6 @@
-import { getRequestCache } from '../lib/requestContext.js';
 import { executeWithRetry, isRetryable } from '../core/retry.js';
+import { measureExecution } from '../core/performanceMetrics.js';
+import { buildPagination } from '../utils/pagination.js';
 
 export class OrderRepository {
   constructor(supabase) {
@@ -16,11 +17,13 @@ export class OrderRepository {
       cache.set(key, result);
     }
     return result;
+  }
+
   async _retryableQuery(queryFn, operationName) {
     return executeWithRetry(async () => {
       let result;
       try {
-        result = await queryFn();
+        result = await measureExecution(`OrderRepository.${operationName}`, queryFn);
       } catch (err) {
         if (isRetryable(err)) {
           throw err;
@@ -67,7 +70,7 @@ export class OrderRepository {
       .eq('order_display_id', displayId)
       .maybeSingle(), 'findOrderByDisplayId');
   }
-
+  
   async findOrderByAnyId(id, columns = '*') {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (uuidRegex.test(id)) {
@@ -77,13 +80,20 @@ export class OrderRepository {
     return this.findOrderByDisplayId(id, columns);
   }
 
-  async findOrdersByCustomer(customerId, columns, statuses, orderColumn, ascending) {
-    return this._retryableQuery(() => this.supabase
-      .from('orders')
-      .select(columns)
-      .eq('customer_id', customerId)
-      .in('status', statuses)
-      .order(orderColumn || 'pickup_date', { ascending: ascending ?? false }), 'findOrdersByCustomer');
+  async findOrdersByCustomer(customerId, columns, statuses, orderColumn, ascending, pagination) {
+    return this._retryableQuery(() => {
+      let query = this.supabase
+        .from('orders')
+        .select(columns)
+        .eq('customer_id', customerId)
+        .in('status', statuses)
+        .order(orderColumn || 'pickup_date', { ascending: ascending ?? false });
+      if (pagination) {
+        const { from, to } = buildPagination(pagination);
+        query = query.range(from, to);
+      }
+      return query;
+    }, 'findOrdersByCustomer');
   }
 
   async findOrdersWithCount(customerId, columns, pagination) {
@@ -104,14 +114,21 @@ export class OrderRepository {
       .select('customer_id, driver_id, order_display_id')
       .eq('id', id)
       .maybeSingle(), 'findOrderForTimeline');
-  }
-
-  async findOrderByDisplayForTimeline(displayId) {
+  } 
+  async findOrderById(id, columns = '*') {
     return this._retryableQuery(() => this.supabase
       .from('orders')
-      .select('customer_id, driver_id, order_display_id')
+      .select(columns)
+      .eq('id', id)
+      .maybeSingle(), 'findOrderById');
+  }
+
+  async findOrderByDisplayId(displayId, columns = '*') {
+    return this._retryableQuery(() => this.supabase
+      .from('orders')
+      .select(columns)
       .eq('order_display_id', displayId)
-      .maybeSingle(), 'findOrderByDisplayForTimeline');
+      .maybeSingle(), 'findOrderByDisplayId');
   }
 
   async updateOrder(id, updates) {
@@ -251,15 +268,20 @@ export class OrderRepository {
       .maybeSingle(), 'findLoadOfferByOrderDisplayId');
   }
 
-  async findLoadOffers(filters, options) {
+  async findLoadOffers(filters, options = {}) {
     return this._retryableQuery(() => {
-      let query = this.supabase.from('load_offers').select('*');
+      let query = this.supabase.from('load_offers').select('*', options.count ? { count: 'exact' } : undefined);
       if (filters) {
         for (const [col, val] of Object.entries(filters)) {
           query = query.eq(col, val);
         }
       }
-      return query.order('created_at', { ascending: false });
+      query = query.order('created_at', { ascending: false });
+      if (options.pagination) {
+        const { from, to } = buildPagination(options.pagination);
+        query = query.range(from, to);
+      }
+      return query;
     }, 'findLoadOffers');
   }
 
@@ -297,17 +319,21 @@ export class OrderRepository {
       .maybeSingle(), 'findBidById');
   }
 
-  async findBidsByLoad(loadId, status, options) {
+  async findBidsByLoad(loadId, status, options = {}) {
     return this._retryableQuery(() => {
       let query = this.supabase
         .from('load_bids')
-        .select('*')
+        .select('*', options.count ? { count: 'exact' } : undefined)
         .eq('load_id', loadId);
       if (status) {
         query = query.eq('status', status);
       }
-      if (options?.orderBy) {
+      if (options.orderBy) {
         query = query.order(options.orderBy, { ascending: options.ascending ?? true });
+      }
+      if (options.pagination) {
+        const { from, to } = buildPagination(options.pagination);
+        query = query.range(from, to);
       }
       return query;
     }, 'findBidsByLoad');
@@ -534,3 +560,4 @@ export class OrderRepository {
       }), 'claimRefundReconciliation');
   }
 }
+

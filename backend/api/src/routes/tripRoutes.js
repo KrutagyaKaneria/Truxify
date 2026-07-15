@@ -7,7 +7,6 @@ import { validateParams } from '../middleware/validate.js';
 import { uuidParamSchema } from '../validation/requestSchemas.js';
 import logger from '../middleware/logger.js';
 
-
 const router = express.Router();
 
 // ============================================================================
