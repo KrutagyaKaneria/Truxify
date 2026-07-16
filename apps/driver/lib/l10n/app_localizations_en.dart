@@ -435,4 +435,32 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get unableToOpen => 'Unable to open notification';
+  String get withdraw => 'Withdraw';
+
+  @override
+  String get withdrawFunds => 'Withdraw Funds';
+
+  @override
+  String get availableBalance => 'Available Balance';
+
+  @override
+  String get enterAmount => 'Enter Amount';
+
+  @override
+  String get amountRequired => 'Amount is required';
+
+  @override
+  String get enterValidAmount => 'Please enter a valid amount';
+
+  @override
+  String get amountMustBePositive => 'Amount must be greater than zero';
+
+  @override
+  String get insufficientBalance => 'Insufficient balance';
+
+  @override
+  String get max => 'Max';
+
+  @override
+  String get withdrawalSuccessful => 'Withdrawal successful';
 }

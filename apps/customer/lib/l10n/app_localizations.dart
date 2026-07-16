@@ -375,6 +375,17 @@ abstract class AppLocalizations {
   String get notification;
 
   String get unableToOpen;
+  String get downloadInvoice;
+
+  String get generatingInvoice;
+
+  String get invoiceReady;
+
+  String get shareInvoice;
+
+  String get printInvoice;
+
+  String get downloadFailed;
 }
 
 class _AppLocalizationsDelegate

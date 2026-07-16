@@ -435,4 +435,32 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get unableToOpen => 'सूचना खोलने में असमर्थ';
+  String get withdraw => 'निकालें';
+
+  @override
+  String get withdrawFunds => 'फंड निकालें';
+
+  @override
+  String get availableBalance => 'उपलब्ध शेष';
+
+  @override
+  String get enterAmount => 'राशि दर्ज करें';
+
+  @override
+  String get amountRequired => 'राशि आवश्यक है';
+
+  @override
+  String get enterValidAmount => 'कृपया एक वैध राशि दर्ज करें';
+
+  @override
+  String get amountMustBePositive => 'राशि शून्य से अधिक होनी चाहिए';
+
+  @override
+  String get insufficientBalance => 'अपर्याप्त शेष';
+
+  @override
+  String get max => 'अधिकतम';
+
+  @override
+  String get withdrawalSuccessful => 'निकासी सफल';
 }
