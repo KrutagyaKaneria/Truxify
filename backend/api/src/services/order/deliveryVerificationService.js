@@ -112,7 +112,7 @@ export class DeliveryVerificationService {
       });
     }
 
-    const { data: order, error: orderErr } = await this.orderRepository.findOrderById(orderId, 'id, order_display_id, driver_id, customer_id, escrow_status, escrow_release_attempts, status');
+    const { data: order, error: orderErr } = await this.orderRepository.findOrderById(orderId, 'id, order_display_id, driver_id, customer_id, escrow_status, escrow_release_attempts, status, toll_estimate, base_freight, platform_fee, total_amount');
 
     if (orderErr || !order) {
       throw new DomainError(404, { error: 'Order not found.' });
@@ -230,6 +230,37 @@ export class DeliveryVerificationService {
     const result = await this.ensureDeliveryOtp({ orderId });
     return { generated: result.generated, otp: result.otp };
     });
+  }
+
+  async calculateDynamicToll(orderId, currentEstimate) {
+    try {
+      const mongoDb = getMongoDb();
+      if (!mongoDb) return currentEstimate;
+      
+      const trace = await mongoDb.collection('telemetry')
+        .find({ order_id: orderId })
+        .sort({ timestamp: 1 })
+        .toArray();
+      
+      if (!trace || trace.length < 2) return currentEstimate;
+      
+      let actualDistanceKm = 0;
+      for (let i = 1; i < trace.length; i++) {
+        const prev = trace[i-1];
+        const curr = trace[i];
+        if (prev.lat && prev.lng && curr.lat && curr.lng) {
+          actualDistanceKm += haversineKm(prev.lat, prev.lng, curr.lat, curr.lng);
+        }
+      }
+      
+      const rateCard = readRateCard();
+      const dynamicToll = Math.round(rateCard.tollPerKm * actualDistanceKm);
+      logger.info(`[Toll] Dynamic toll for order ${orderId} calculated as ${dynamicToll} (distance: ${actualDistanceKm.toFixed(2)}km)`);
+      return dynamicToll;
+    } catch (err) {
+      logger.error(`[Toll] Failed to calculate dynamic toll: ${err.message}`);
+      return currentEstimate;
+    }
   }
 
   async verifyDelivery({ orderId, driverId, otp }) {
