@@ -179,22 +179,23 @@ contract TruxifyEscrow is ReentrancyGuard, Ownable, Pausable {
     }
 
     /**
-     * @dev Refund customer when booking is cancelled before driver starts.
-     *      Also secured with nonReentrant + CEI.
+     * @dev Cancel a booking and refund the customer.
+     *      RESTRICTED to onlyOwner (backend) to ensure on-chain and off-chain
+     *      state remain synchronized. The backend's cancellation flow performs
+     *      critical checks: Redis distributed lock, idempotency guard, order
+     *      state validation, and escrow refund tracking. Allowing direct
+     *      customer cancellation desynchronizes state.
      *
      * @param bookingId The booking to cancel and refund
      */
     function cancelBooking(uint256 bookingId)
         external
+        onlyOwner
         nonReentrant
         whenNotPaused
     {
         Booking storage booking = bookings[bookingId];
 
-        require(
-            booking.customer == msg.sender || owner() == msg.sender,
-            "TruxifyEscrow: Not authorised"
-        );
         require(
             booking.status == BookingStatus.Active,
             "TruxifyEscrow: Cannot cancel - booking not active"
@@ -224,17 +225,16 @@ contract TruxifyEscrow is ReentrancyGuard, Ownable, Pausable {
 
     /**
      * @dev Flag a booking as disputed. Freezes payment until resolved.
-     *      Resolution is handled by n8n automation pipeline.
+     *      RESTRICTED to onlyOwner (backend) to ensure disputes are managed
+     *      through the proper resolution pipeline (n8n automation).
+     *      Direct customer/driver disputes bypass backend tracking and
+     *      could freeze funds and block the delivery flow.
      *
      * @param bookingId The booking to flag
      */
-    function raiseDispute(uint256 bookingId) external whenNotPaused {
+    function raiseDispute(uint256 bookingId) external onlyOwner whenNotPaused {
         Booking storage booking = bookings[bookingId];
 
-        require(
-            msg.sender == booking.customer || msg.sender == booking.driver,
-            "TruxifyEscrow: Not a party to this booking"
-        );
         require(
             booking.status == BookingStatus.Active,
             "TruxifyEscrow: Cannot dispute - booking not active"
