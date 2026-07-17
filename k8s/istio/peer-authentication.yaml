@@ -1,4 +1,7 @@
+﻿apiVersion: security.istio.io/v1beta1
+
 apiVersion: security.istio.io/v1beta1
+
 kind: PeerAuthentication
 metadata:
   name: truxify-peer-auth
@@ -9,6 +12,7 @@ spec:
   selector:
     matchLabels:
       app: truxify
+
 ---
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
@@ -18,3 +22,4 @@ metadata:
 spec:
   mtls:
     mode: PERMISSIVE
+

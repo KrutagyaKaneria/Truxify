@@ -1,4 +1,8 @@
+
+﻿apiVersion: networking.istio.io/v1beta1
+
 apiVersion: networking.istio.io/v1beta1
+
 kind: DestinationRule
 metadata:
   name: truxify-destination-rule
@@ -17,6 +21,7 @@ spec:
       interval: 30s
       baseEjectionTime: 30s
       maxEjectionPercent: 50
+
   subsets:
   - name: v1
     labels:
@@ -65,3 +70,4 @@ spec:
         connectTimeout: 10ms
     loadBalancer:
       simple: ROUND_ROBIN
+

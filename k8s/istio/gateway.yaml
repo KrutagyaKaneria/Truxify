@@ -1,4 +1,8 @@
+
+﻿apiVersion: networking.istio.io/v1beta1
+
 apiVersion: networking.istio.io/v1beta1
+
 kind: Gateway
 metadata:
   name: truxify-gateway
@@ -14,6 +18,7 @@ spec:
     hosts:
     - "truxify.com"
     - "*.truxify.com"
+
     tls:
       httpsRedirect: true
   - port:
@@ -63,3 +68,4 @@ spec:
         host: api-service
         port:
           number: 5000
+

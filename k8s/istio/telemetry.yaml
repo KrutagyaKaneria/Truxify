@@ -1,3 +1,4 @@
+﻿apiVersion: telemetry.istio.io/v1alpha1
 apiVersion: telemetry.istio.io/v1alpha1
 kind: Telemetry
 metadata:
@@ -11,6 +12,7 @@ spec:
   - providers:
     - name: jaeger
     randomSamplingPercentage: 50
+
   accessLogging:
   - providers:
     - name: envoy
@@ -34,3 +36,4 @@ spec:
     - match:
         metric: REQUEST_SIZE
       disabled: false
+
