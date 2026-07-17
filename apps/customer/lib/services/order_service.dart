@@ -190,6 +190,10 @@ class OrderService {
     required double weightTonnes,
     bool isFragile = false,
     bool isStackable = true,
+    String? truckType,
+    double? minCapacity,
+    double? maxCapacity,
+    String? materialType,
   }) async {
     final params = <String, String>{
       'pickup_lat': pickupLat.toString(),
@@ -199,6 +203,10 @@ class OrderService {
       'weight_tonnes': weightTonnes.toString(),
       'is_fragile': isFragile.toString(),
       'is_stackable': isStackable.toString(),
+      if (truckType != null) 'truck_type': truckType,
+      if (minCapacity != null) 'min_capacity': minCapacity.toString(),
+      if (maxCapacity != null) 'max_capacity': maxCapacity.toString(),
+      if (materialType != null) 'material_type': materialType,
     };
 
     final path = Uri(path: '/api/trucks/search', queryParameters: params).toString();

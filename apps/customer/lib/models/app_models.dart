@@ -16,6 +16,10 @@ class RouteDraft {
     this.pickupLng,
     this.dropLat,
     this.dropLng,
+    this.truckType,
+    this.minCapacity,
+    this.maxCapacity,
+    this.materialType,
   });
 
   final String pickup;
@@ -32,6 +36,10 @@ class RouteDraft {
   final double? pickupLng;
   final double? dropLat;
   final double? dropLng;
+  final String? truckType;
+  final double? minCapacity;
+  final double? maxCapacity;
+  final String? materialType;
 }
 
 class ShipmentCardData {

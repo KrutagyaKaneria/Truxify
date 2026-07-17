@@ -196,7 +196,8 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
     pickup_lat, pickup_lng,
     drop_lat, drop_lng,
     weight_tonnes,
-    is_fragile, is_stackable
+    is_fragile, is_stackable,
+    truck_type, min_capacity, max_capacity, material_type
   } = req.query;
 
   if (pickup_lat == null || pickup_lng == null || drop_lat == null || drop_lng == null || weight_tonnes == null) {
@@ -233,6 +234,34 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
   const stackableFilter = parseBoolean(is_stackable);
   if (stackableFilter.error) {
     return res.status(400).json({ error: stackableFilter.error });
+  }
+
+  const VALID_TRUCK_TYPES = ['Open Body', 'Closed Body', 'Container', 'Refrigerated'];
+  if (truck_type !== undefined && truck_type !== '') {
+    if (!VALID_TRUCK_TYPES.includes(truck_type)) {
+      return res.status(400).json({ error: `Invalid truck_type. Must be one of: ${VALID_TRUCK_TYPES.join(', ')}` });
+    }
+  }
+
+  const VALID_MATERIAL_TYPES = ['Textile', 'Electronics', 'Food', 'Machinery', 'Furniture'];
+  if (material_type !== undefined && material_type !== '') {
+    if (!VALID_MATERIAL_TYPES.includes(material_type)) {
+      return res.status(400).json({ error: `Invalid material_type. Must be one of: ${VALID_MATERIAL_TYPES.join(', ')}` });
+    }
+  }
+
+  const minCapFilter = parseCapacityFilter(min_capacity, 'min_capacity');
+  if (minCapFilter.error) {
+    return res.status(400).json({ error: minCapFilter.error });
+  }
+
+  const maxCapFilter = parseCapacityFilter(max_capacity, 'max_capacity');
+  if (maxCapFilter.error) {
+    return res.status(400).json({ error: maxCapFilter.error });
+  }
+
+  if (minCapFilter.value !== undefined && maxCapFilter.value !== undefined && minCapFilter.value > maxCapFilter.value) {
+    return res.status(400).json({ error: 'min_capacity must be less than or equal to max_capacity' });
   }
 
   try {
@@ -348,6 +377,7 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
         truck: truck.name || 'Unknown Truck',
         truckNumber: truck.number_plate || '',
         capacity: truck.max_capacity_tons ? `${truck.max_capacity_tons} tonnes` : '',
+        capacityTons: truck.max_capacity_tons || 0,
         price: finalTotalAmount,
         baseFreight: finalBaseFreight,
         tollEstimate: finalTollEstimate,
@@ -357,7 +387,33 @@ router.get('/search', authenticate, userLimiter, async (req, res) => {
       };
     });
 
-    res.json(results);
+    const filteredResults = results.filter(truck => {
+      if (minCapFilter.value !== undefined && truck.capacityTons < minCapFilter.value) {
+        return false;
+      }
+      if (maxCapFilter.value !== undefined && truck.capacityTons > maxCapFilter.value) {
+        return false;
+      }
+      if (truck_type && truck_type !== '') {
+        const truckNameLower = (truck.truck || '').toLowerCase();
+        const typeLower = truck_type.toLowerCase();
+        if (!truckNameLower.includes(typeLower)) {
+          return false;
+        }
+      }
+      if (material_type && material_type !== '') {
+        const truckNameLower = (truck.truck || '').toLowerCase();
+        const matLower = material_type.toLowerCase();
+        if (!truckNameLower.includes(matLower)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const responseResults = filteredResults.map(({ capacityTons, ...rest }) => rest);
+
+    res.json(responseResults);
   } catch (err) {
     logger.error('Truck search error:', err.message);
     res.status(500).json({ error: 'Internal Server Error' });
