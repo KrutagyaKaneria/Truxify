@@ -289,6 +289,10 @@ class _FindTrucksScreenState extends State<FindTrucksScreen> {
       pickupLng: _pickupPoint?.longitude,
       dropLat: _dropPoint?.latitude,
       dropLng: _dropPoint?.longitude,
+      truckType: _filterTruckType != 'Any' ? _filterTruckType : null,
+      minCapacity: _filterMinCapacity > 0 ? _filterMinCapacity : null,
+      maxCapacity: _filterMaxCapacity < 25 ? _filterMaxCapacity : null,
+      materialType: _filterMaterialType != 'Any' ? _filterMaterialType : null,
     );
   }
 

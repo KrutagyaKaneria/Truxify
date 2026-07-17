@@ -474,6 +474,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get enterValidBid => 'Enter a valid bid amount';
+  String get unableToOpen => 'Unable to open notification';
   String get withdraw => 'Withdraw';
 
   @override

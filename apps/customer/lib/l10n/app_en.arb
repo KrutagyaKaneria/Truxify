@@ -727,6 +727,52 @@
     "description": "Error message when profile update fails"
   },
 
+  "shareTracking": "Share Tracking",
+  "@shareTracking": {
+    "description": "Button text to share order tracking link"
+  },
+
+  "trackingLinkGenerated": "Tracking link generated",
+  "@trackingLinkGenerated": {
+    "description": "Success message when tracking link is generated"
+  },
+
+  "unableToShare": "Unable to share",
+  "@unableToShare": {
+    "description": "Error message when sharing fails"
+  },
+
+  "linkExpired": "This tracking link has expired or is no longer valid.",
+  "@linkExpired": {
+    "description": "Message shown when a tracking link has expired"
+  },
+
+  "trackingRevoked": "All tracking links have been revoked.",
+  "@trackingRevoked": {
+    "description": "Message shown when tracking links are revoked"
+  },
+
+  "copyLink": "Copy Link",
+  "@copyLink": {
+    "description": "Button text to copy tracking link to clipboard"
+  },
+
+  "shareMessage": "Track your shipment on Truxify",
+  "@shareMessage": {
+    "description": "Default message included when sharing tracking link"
+  "orderNotFound": "Order not found",
+  "@orderNotFound": {
+    "description": "Error message when an order referenced by a notification cannot be found"
+  },
+
+  "notification": "Notification",
+  "@notification": {
+    "description": "Title for notification-related UI elements"
+  },
+
+  "unableToOpen": "Unable to open notification",
+  "@unableToOpen": {
+    "description": "Error message when a notification cannot be navigated to"
   "downloadInvoice": "Download Invoice",
   "@downloadInvoice": {
     "description": "Button text to download the order invoice as PDF"

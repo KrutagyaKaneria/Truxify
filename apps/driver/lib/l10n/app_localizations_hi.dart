@@ -474,6 +474,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get enterValidBid => 'एक मान्य बोली राशि दर्ज करें';
+  String get unableToOpen => 'सूचना खोलने में असमर्थ';
   String get withdraw => 'निकालें';
 
   @override

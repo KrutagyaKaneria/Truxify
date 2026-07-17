@@ -403,6 +403,7 @@ abstract class AppLocalizations {
   String get submitBid;
 
   String get enterValidBid;
+  String get unableToOpen;
   String get withdraw;
 
   String get withdrawFunds;

@@ -306,3 +306,10 @@ export const matchDeadheadSchema = z.object({
   arrival_time: isoDateStringSchema,
   available_loads: z.array(availableLoadSchema).min(1, 'At least one available load is required').max(50, 'Too many loads'),
 }).strict();
+// ── Public Order Tracking schemas ─────────────────────────────────────────
+
+export const shareTrackingSchema = z.object({}).strict();
+
+export const publicTrackingTokenSchema = z.object({
+  token: z.string().min(1, 'Tracking token is required').max(512),
+});

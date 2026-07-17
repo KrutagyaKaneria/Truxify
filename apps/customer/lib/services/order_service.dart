@@ -190,6 +190,10 @@ class OrderService {
     required double weightTonnes,
     bool isFragile = false,
     bool isStackable = true,
+    String? truckType,
+    double? minCapacity,
+    double? maxCapacity,
+    String? materialType,
   }) async {
     final params = <String, String>{
       'pickup_lat': pickupLat.toString(),
@@ -199,6 +203,10 @@ class OrderService {
       'weight_tonnes': weightTonnes.toString(),
       'is_fragile': isFragile.toString(),
       'is_stackable': isStackable.toString(),
+      if (truckType != null) 'truck_type': truckType,
+      if (minCapacity != null) 'min_capacity': minCapacity.toString(),
+      if (maxCapacity != null) 'max_capacity': maxCapacity.toString(),
+      if (materialType != null) 'material_type': materialType,
     };
 
     final path = Uri(path: '/api/trucks/search', queryParameters: params).toString();
@@ -318,6 +326,32 @@ class OrderService {
       throw StateError(e.message);
     } catch (e) {
       throw StateError('Failed to fetch driver location: $e');
+    }
+  }
+
+  /// Submits a star rating (and optional comment) for a delivered order.
+  ///
+  /// Calls `POST /api/orders/:id/ratings` with `{ stars, comment }`.
+  /// Returns the rating payload from the server on success.
+  /// Throws [StateError] on API or network failure.
+  Future<Map<String, dynamic>> submitRating({
+    required String orderId,
+    required int stars,
+    String? comment,
+  }) async {
+    try {
+      final body = await _apiClient.post(
+        '/api/orders/${_encodePathSegment(orderId)}/ratings',
+        body: <String, dynamic>{
+          'stars': stars,
+          if (comment != null && comment.isNotEmpty) 'comment': comment,
+        },
+      );
+      return body is Map<String, dynamic> ? body : <String, dynamic>{};
+    } on ApiException catch (e) {
+      throw StateError(e.message);
+    } catch (e) {
+      throw StateError('Failed to submit rating: $e');
     }
   }
 

@@ -2,13 +2,9 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 
 import { bidLimiter, userLimiter, safeIpKeyGenerator, createStore } from '../middleware/rateLimiter.js';
-import { redisClient, mongoDb, supabase } from '../config/db.js';
-import { OrderRepository } from '../repositories/orderRepository.js';
+import { mongoDb, supabase } from '../config/db.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePolicy } from '../middleware/requirePolicy.js';
-import { getRouteEstimate } from '../services/osrm.js';
-import { computeOrderPricing } from '../lib/pricing.js';
-
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { z } from 'zod';
 import {
@@ -24,33 +20,9 @@ import {
   cancelOrderSchema,
 } from '../validation/requestSchemas.js';
 import { awardReputationPoints } from '../services/reputation.js';
-import {
-  escrowRefund,
-  buildDepositTx,
-  recordDepositTx,
-  submitEscrowRefund,
-  confirmEscrowRefund,
-  getEscrowBookingId,
-} from '../services/escrow.js';
-import { BidAcceptanceService } from '../services/order/bidAcceptanceService.js';
-import { DeliveryVerificationService } from '../services/order/deliveryVerificationService.js';
-import {
-  sendDeliveryOtpNotification,
-  storeDeliveryOtp,
-  getActiveDeliveryOtp,
-  verifyDeliveryOtp,
-  expireDeliveryOtps
-} from '../services/notificationService.js';
-import { OrderTimelineService } from '../services/order/orderTimelineService.js';
-import { createOrder } from '../services/order/orderCreationService.js';
-import { OrderValidationService } from '../services/order/orderValidationService.js';
-import { OrderMilestoneService } from '../services/order/orderMilestoneService.js';
+import { expireDeliveryOtps } from '../services/notificationService.js';
+import { DomainError } from '../services/order/domainError.js';
 import { predictDemand, predictPrice } from '../services/ml.js';
-import {
-  verifyDelivery,
-  resendDeliveryOtp,
-} from '../services/order/deliveryVerificationService.js';
-
 import { requireIdempotency } from '../middleware/idempotency.js';
 import { acquireLock, releaseLock } from '../lib/redisLock.js';
 import logger from '../middleware/logger.js';
@@ -62,24 +34,10 @@ const router = express.Router();
 const orderRepository = new OrderRepository(supabase);
 
 const orderValidationService = new OrderValidationService({ supabase, logger });
-const orderTimelineService = new OrderTimelineService({
-  supabase,
-  logger,
-});
+const orderTimelineService = new OrderTimelineService(orderRepository);
 const orderMilestoneService = new OrderMilestoneService({ orderValidationService, orderRepository, orderTimelineService });
 
 const bidAcceptanceService = new BidAcceptanceService({
-  orderRepository,
-  buildDepositTxFn: buildDepositTx,
-  recordDepositTxFn: recordDepositTx,
-  escrowRefundFn: escrowRefund,
-  logger,
-});
-const deliveryVerificationService = new DeliveryVerificationService(orderRepository);
-
-
-const orderLifecycleService = new OrderLifecycleService({
-
   orderRepository,
   orderValidationService,
   orderMilestoneService,
@@ -168,6 +126,10 @@ router.post('/', authenticate, userLimiter, requirePolicy('order:create'), requi
     pickup_address, pickup_lat, pickup_lng,
     drop_address, drop_lat, drop_lng,
     goods_type, weight_tonnes,
+    pickup_date, pickup_time,
+    length_ft, width_ft, height_ft,
+    is_stackable, is_fragile, special_requirements,
+    payment_method_id, upi_id,
   } = req.body;
 
   if (pickup_address && pickup_address.length > 200) {
@@ -188,6 +150,7 @@ router.post('/', authenticate, userLimiter, requirePolicy('order:create'), requi
       dropLat: Number(drop_lat),
       dropLng: Number(drop_lng),
     });
+    let pricing;
     pricing = computeOrderPricing({
       pickupLat:  Number(pickup_lat),
       pickupLng:  Number(pickup_lng),
@@ -355,6 +318,7 @@ router.get('/load-offers', authenticate, userLimiter, async (req, res) => {
 
     if (error) return res.status(500).json({ error: 'Failed to fetch load offers.', details: error.message });
 
+    const cacheKey = `load-offers:${page}:${limit}`;
     if (redisClient) {
       await redisClient.set(cacheKey, JSON.stringify(offers), 'EX', 120).catch(() => {});
     }
@@ -380,6 +344,7 @@ router.get('/load-offers/en-route', authenticate, userLimiter, async (req, res) 
 
     if (error) return res.status(500).json({ error: 'Failed to fetch en-route loads.', details: error.message });
 
+    const cacheKey = `load-offers:${page}:${limit}`;
     if (redisClient) {
       await redisClient.set(cacheKey, JSON.stringify(offers), 'EX', 120).catch(() => {});
     }
@@ -463,24 +428,11 @@ router.get('/:id', authenticate, userLimiter, validateParams(paramIdSchema), asy
 // ============================================================================
 router.get('/:id/timeline', authenticate, userLimiter, validateParams(paramIdSchema), async (req, res) => {
   const orderId = req.params.id;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   try {
-    let order = null;
-    if (uuidRegex.test(orderId)) {
-      const { data: orderById } = await orderRepository.findOrderForTimeline(orderId);
-      order = orderById;
-    }
-    if (!order) {
-      const { data: orderByDisplay } = await orderRepository.findOrderByDisplayForTimeline(orderId);
-      order = orderByDisplay;
-    }
-
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    if (order.customer_id !== req.user.id && order.driver_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access Denied: You do not own or are not assigned to this order.' });
-    }
+    const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, 'customer_id, driver_id, order_display_id');
+    orderValidationService.assertOrderFound(order);
+    orderValidationService.assertOrderAccess(order, req.user);
 
     const timeline = await orderTimelineService.getOrderTimeline(order.order_display_id);
     res.json(timeline);
@@ -500,23 +452,6 @@ router.post('/:id/bids', authenticate, userLimiter, requirePolicy('bid:submit'),
   try {
     const loadOfferId = req.params.id;
     const { bid_amount } = req.body;
-    const { data: offer, error: offerErr } = await orderRepository.findLoadOfferById(loadOfferId);
-    if (offerErr || !offer) return res.status(404).json({ error: 'Load offer not found.' });
-    if (offer.status !== 'available') return res.status(410).json({ error: 'Load is no longer available for bidding.' });
-    if (offer.customer_id === req.user.id) return res.status(403).json({ error: 'You cannot bid on your own load offer' });
-
-    const { data: driverDetails, error: driverDetailsErr } = await orderRepository.findDriverDetailMinimal(req.user.id);
-    if (driverDetailsErr) return res.status(500).json({ error: 'Failed to verify driver profile.', details: driverDetailsErr.message });
-    if (!driverDetails?.truck_id) return res.status(400).json({ error: 'You must assign a valid truck to your profile before bidding on loads' });
-
-    const { data: truck, error: truckErr } = await orderRepository.findTruckById(driverDetails.truck_id);
-    if (truckErr) return res.status(500).json({ error: 'Failed to verify assigned truck.', details: truckErr.message });
-    if (!truck) return res.status(400).json({ error: 'Assigned truck record could not be found' });
-
-    const { data: existingBid, error: existingBidErr } = await orderRepository.findExistingBid(loadOfferId, req.user.id, 'pending');
-    if (existingBidErr) return res.status(500).json({ error: 'Failed to verify existing bids.', details: existingBidErr.message });
-    if (existingBid) return res.status(409).json({ error: 'You already have a pending bid for this load.' });
-
     const offer = await orderValidationService.assertLoadOfferAvailable(loadOfferId);
     orderValidationService.assertNotOwnLoad(offer.customer_id, req.user.id);
     await orderValidationService.assertTruckAssigned(req.user.id);
@@ -542,30 +477,7 @@ router.post('/:id/ratings', authenticate, userLimiter, requirePolicy('order:subm
   try {
     const orderId = req.params.id;
     const { stars, comment } = req.body;
-    const { data: order, error: orderErr } = await orderRepository.findOrderById(orderId, 'id, order_display_id, customer_id, driver_id, status');
 
-    if (orderErr) {
-      return res.status(500).json({ error: 'Failed to fetch order.', details: orderErr.message });
-    }
-
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found.' });
-    }
-
-    if (order.customer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
-    }
-
-    if (!['delivered', 'payment_released'].includes(order.status)) {
-      return res.status(400).json({ error: 'Order must be delivered before a rating can be submitted.' });
-    }
-
-    if (!order.driver_id) {
-      return res.status(400).json({ error: 'Order does not have an assigned driver.' });
-    }
-
-
-  try {
     const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, 'id, order_display_id, customer_id, driver_id, status');
     orderValidationService.assertOrderFound(order);
     orderValidationService.assertCustomerOwnership(order, req.user.id);
@@ -578,7 +490,7 @@ router.post('/:id/ratings', authenticate, userLimiter, requirePolicy('order:subm
       p_driver_id: order.driver_id,
       p_stars: stars,
       p_comment: comment,
-    });
+    }, req.token ? createUserClient(req.token) : undefined);
 
     if (rpcErr) {
       return res.status(500).json({ error: 'Failed to submit rating.', details: rpcErr.message });
@@ -625,7 +537,7 @@ router.post('/:id/ratings', authenticate, userLimiter, requirePolicy('order:subm
 // 10. VIEW BIDS FOR AN ORDER (CUSTOMER)
 // ============================================================================
 router.get('/:id/bids', authenticate, userLimiter, requirePolicy('order:view-bids'), validateParams(paramIdSchema), async (req, res) => {
-
+  const orderId = req.params.id;
   try {
     const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, 'order_display_id, customer_id');
     if (!order) return res.status(403).json({ error: 'Access Denied: You do not own this order.' });
@@ -684,7 +596,6 @@ router.get('/:id/bids', authenticate, userLimiter, requirePolicy('order:view-bid
 // ============================================================================
 
 router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requirePolicy('order:accept-bid'), requireIdempotency(86400), validateParams(acceptBidParamsSchema), async (req, res) => {
-
   try {
     const result = await orderLifecycleService.acceptBid(req.params.id, req.params.bidId, req.user.id);
     return res.status(result.status).json(result.body);
@@ -749,7 +660,6 @@ router.post('/:id/verify-delivery', authenticate, userLimiter, requirePolicy('de
 // 14. RESEND DELIVERY OTP (DRIVER)
 // ============================================================================
 router.post('/:id/resend-otp', authenticate, userLimiter, resendOtpLimiter, requirePolicy('delivery:resend-otp'), validateParams(paramIdSchema), async (req, res) => {
-  const { id: orderId } = req.params;
   try {
     const orderId = req.params.id;
     const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, 'id, order_display_id, driver_id, customer_id, status');
@@ -778,6 +688,7 @@ router.post('/:id/resend-otp', authenticate, userLimiter, resendOtpLimiter, requ
 // ============================================================================
 router.put('/:id/change-drop', authenticate, userLimiter, changeDropLimiter, requirePolicy('order:change-drop'), validateParams(paramIdSchema), validateBody(changeDropSchema), async (req, res) => {
   const { id: orderId } = req.params;
+  const { drop_address, drop_lat, drop_lng } = req.body;
   try {
     const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, '*');
     orderValidationService.assertOrderFound(order);
@@ -871,7 +782,6 @@ router.put('/:id/change-drop', authenticate, userLimiter, changeDropLimiter, req
 // 16. CANCEL ORDER AND REFUND ESCROW (CUSTOMER)
 // ============================================================================
 router.post('/:id/cancel', authenticate, userLimiter, requirePolicy('order:cancel'), requireIdempotency(86400), validateParams(paramIdSchema), validateBody(cancelOrderSchema), async (req, res) => {
-  const { id: orderId } = req.params;
   try {
     const order = await orderValidationService.findOrderByIdOrDisplayId(orderId, '*');
     orderValidationService.assertOrderFound(order);

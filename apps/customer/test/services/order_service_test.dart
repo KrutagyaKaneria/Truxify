@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:truxify/core/api_client.dart';
+import 'package:truxify/models/app_models.dart';
 import 'package:truxify/services/order_service.dart';
 import 'package:truxify/services/supabase_service.dart';
 
@@ -142,6 +143,54 @@ void main() {
     );
   });
 
+  test('searchTrucks forwards filter parameters as query string', () async {
+    when(() => apiClient.get(any(that: startsWith('/api/trucks/search'))))
+        .thenAnswer((_) async => []);
+
+    await orderService.searchTrucks(
+      pickupLat: 12.3,
+      pickupLng: 45.6,
+      dropLat: 78.9,
+      dropLng: 12.3,
+      weightTonnes: 5.5,
+      truckType: 'Open Body',
+      minCapacity: 5.0,
+      maxCapacity: 15.0,
+      materialType: 'Textile',
+    );
+
+    final captured = verify(
+      () => apiClient.get(captureAny(that: startsWith('/api/trucks/search'))),
+    ).captured.single as String;
+
+    expect(captured, contains('truck_type=Open%20Body'));
+    expect(captured, contains('min_capacity=5.0'));
+    expect(captured, contains('max_capacity=15.0'));
+    expect(captured, contains('material_type=Textile'));
+  });
+
+  test('searchTrucks omits filter params when null', () async {
+    when(() => apiClient.get(any(that: startsWith('/api/trucks/search'))))
+        .thenAnswer((_) async => []);
+
+    await orderService.searchTrucks(
+      pickupLat: 12.3,
+      pickupLng: 45.6,
+      dropLat: 78.9,
+      dropLng: 12.3,
+      weightTonnes: 5.5,
+    );
+
+    final captured = verify(
+      () => apiClient.get(captureAny(that: startsWith('/api/trucks/search'))),
+    ).captured.single as String;
+
+    expect(captured, isNot(contains('truck_type')));
+    expect(captured, isNot(contains('min_capacity')));
+    expect(captured, isNot(contains('max_capacity')));
+    expect(captured, isNot(contains('material_type')));
+  });
+
   group('estimatePriceRange', () {
     test('returns correct min and max when prices are integers', () async {
       when(() => apiClient.get(
@@ -217,6 +266,152 @@ void main() {
       );
 
       expect(result, isNull);
+    });
+  });
+
+  group('RouteDraft filter fields', () {
+    test('holds filter values when provided', () {
+      const draft = RouteDraft(
+        pickup: 'Mumbai',
+        drop: 'Delhi',
+        dateLabel: 'Tomorrow, 6:00 AM',
+        goodsType: 'Textile',
+        weightTonnes: '5',
+        dimensions: '12 × 6 × 6',
+        stacked: true,
+        fragile: false,
+        requirements: [],
+        truckType: 'Open Body',
+        minCapacity: 5.0,
+        maxCapacity: 15.0,
+        materialType: 'Textile',
+      );
+
+      expect(draft.truckType, equals('Open Body'));
+      expect(draft.minCapacity, equals(5.0));
+      expect(draft.maxCapacity, equals(15.0));
+      expect(draft.materialType, equals('Textile'));
+    });
+
+    test('defaults filter fields to null when omitted', () {
+      const draft = RouteDraft(
+        pickup: 'Mumbai',
+        drop: 'Delhi',
+        dateLabel: 'Tomorrow, 6:00 AM',
+        goodsType: 'Textile',
+        weightTonnes: '5',
+        dimensions: '12 × 6 × 6',
+        stacked: true,
+        fragile: false,
+        requirements: [],
+      );
+
+      expect(draft.truckType, isNull);
+      expect(draft.minCapacity, isNull);
+      expect(draft.maxCapacity, isNull);
+      expect(draft.materialType, isNull);
+  group('submitRating', () {
+    test('sends correct payload to POST /api/orders/:id/ratings', () async {
+      when(() => apiClient.post(
+            '/api/orders/ORD-100/ratings',
+            body: any(named: 'body'),
+          )).thenAnswer((_) async => {
+            'message': 'Rating submitted successfully.',
+            'rating': {
+              'order_display_id': 'ORD-100',
+              'customer_id': 'user_123',
+              'driver_id': 'driver-abc',
+              'stars': 5,
+              'comment': 'Great delivery!',
+            },
+          });
+
+      final result = await orderService.submitRating(
+        orderId: 'ORD-100',
+        stars: 5,
+        comment: 'Great delivery!',
+      );
+
+      expect(result['message'], equals('Rating submitted successfully.'));
+      expect(result['rating']['stars'], equals(5));
+
+      verify(
+        () => apiClient.post(
+          '/api/orders/ORD-100/ratings',
+          body: {'stars': 5, 'comment': 'Great delivery!'},
+        ),
+      ).called(1);
+    });
+
+    test('omits comment when null or empty', () async {
+      when(() => apiClient.post(
+            '/api/orders/ORD-200/ratings',
+            body: any(named: 'body'),
+          )).thenAnswer((_) async => {
+            'message': 'Rating submitted successfully.',
+            'rating': {'stars': 3},
+          });
+
+      await orderService.submitRating(orderId: 'ORD-200', stars: 3);
+
+      verify(
+        () => apiClient.post(
+          '/api/orders/ORD-200/ratings',
+          body: {'stars': 3},
+        ),
+      ).called(1);
+    });
+
+    test('throws StateError on ApiException', () async {
+      when(() => apiClient.post(
+            any(),
+            body: any(named: 'body'),
+          )).thenThrow(const ApiException(400, 'Order must be delivered'));
+
+      await expectLater(
+        () => orderService.submitRating(orderId: 'ORD-300', stars: 4),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Order must be delivered'),
+          ),
+        ),
+      );
+    });
+
+    test('throws StateError on generic exception', () async {
+      when(() => apiClient.post(
+            any(),
+            body: any(named: 'body'),
+          )).thenThrow(Exception('network timeout'));
+
+      await expectLater(
+        () => orderService.submitRating(orderId: 'ORD-400', stars: 2),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Failed to submit rating'),
+          ),
+        ),
+      );
+    });
+
+    test('encodes special characters in order ID', () async {
+      when(() => apiClient.post(
+            '/api/orders/ORD%2F123%23abc/ratings',
+            body: any(named: 'body'),
+          )).thenAnswer((_) async => {'message': 'ok'});
+
+      await orderService.submitRating(orderId: 'ORD/123#abc', stars: 1);
+
+      verify(
+        () => apiClient.post(
+          '/api/orders/ORD%2F123%23abc/ratings',
+          body: {'stars': 1},
+        ),
+      ).called(1);
     });
   });
 }

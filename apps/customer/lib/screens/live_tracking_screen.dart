@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import '../core/api_client.dart';
 import '../services/order_service.dart';
+import '../services/tracking_service.dart';
 import '../services/voice_ai_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/offline/websocket/resilient_websocket.dart';
@@ -29,6 +31,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _movementController;
   late final OrderService _orderService;
+  late final TrackingService _trackingService;
   List<Map<String, dynamic>> _timeline = [];
   Map<String, dynamic>? _order;
   RealtimeChannel? _ordersChannel;
@@ -61,6 +64,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     super.initState();
 
     _orderService = OrderService();
+    _trackingService = TrackingService();
     _movementController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -692,6 +696,39 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
     );
   }
 
+  Future<void> _shareTracking() async {
+    if (_order == null) return;
+
+    try {
+      final result = await _trackingService.shareTrackingLink(
+        orderDisplayId: widget.orderId,
+      );
+
+      final trackingUrl = result['trackingUrl'] as String?;
+      if (trackingUrl == null || trackingUrl.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to generate tracking link')),
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      await Share.share(
+        'Track your shipment on Truxify:\n$trackingUrl',
+        subject: 'Shipment Tracking - ${widget.orderId}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to share: $e')),
+      );
+    }
+  }
+
+  static const LatLng _fallbackPickupPoint = LatLng(21.1702, 72.8311);
+  static const LatLng _fallbackDropPoint = LatLng(26.9124, 75.7873);
+
   Future<void> _loadTimeline() async {
     try {
       final timeline = await _orderService.fetchOrderTimeline(widget.orderId);
@@ -973,9 +1010,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen>
                               ),
                             ),
                             IconButton(
-                              onPressed: () {},
+                              onPressed: _order == null ? null : _shareTracking,
                               icon: Icon(
-                                Icons.more_vert_rounded,
+                                Icons.share_rounded,
                                 color: Theme.of(context).brightness ==
                                         Brightness.dark
                                     ? TruxifyColors.darkPrimaryText
