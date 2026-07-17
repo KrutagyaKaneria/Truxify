@@ -6,7 +6,7 @@ import { redisClient, mongoDb, supabase } from '../config/db.js';
 import { OrderRepository } from '../repositories/orderRepository.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePolicy } from '../middleware/requirePolicy.js';
-import { getRouteEstimate } from '../services/osrm.js';
+import { getRouteEstimate, getRouteGeometry, buildStraightLineGeometry } from '../services/osrm.js';
 import { computeOrderPricing } from '../lib/pricing.js';
 
 import { validateBody, validateParams } from '../middleware/validate.js';
