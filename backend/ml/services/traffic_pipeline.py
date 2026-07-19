@@ -99,9 +99,14 @@ class TrafficPipeline:
             )
             
             session = self.Session()
-            session.add(traffic_entry)
-            session.commit()
-            session.close()
+            try:
+                session.add(traffic_entry)
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
             
             # Cache in Redis
             self.redis.setex(
