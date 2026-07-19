@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from services.traffic_pipeline import TrafficPipeline
 import numpy as np
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/eta", tags=["ETA Predictions"])
 
