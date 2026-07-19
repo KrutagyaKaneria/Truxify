@@ -308,6 +308,35 @@ export const matchDeadheadSchema = z.object({
 }).strict();
 // ── Public Order Tracking schemas ─────────────────────────────────────────
 
+// ── Driver profit prediction schema ──────────────────────────────────────
+
+export const predictDriverProfitSchema = z.object({
+  route_distance_km: coerceNumber(
+    z.number({ invalid_type_error: 'route_distance_km must be a number' })
+      .positive({ message: 'route_distance_km must be greater than 0' })
+  ),
+  fuel_price_per_litre: coerceNumber(
+    z.number({ invalid_type_error: 'fuel_price_per_litre must be a number' })
+      .positive({ message: 'fuel_price_per_litre must be greater than 0' })
+  ),
+  toll_estimate_inr: coerceNumber(
+    z.number({ invalid_type_error: 'toll_estimate_inr must be a number' })
+      .nonnegative({ message: 'toll_estimate_inr must be >= 0' })
+  ),
+  truck_mileage_kml: coerceNumber(
+    z.number({ invalid_type_error: 'truck_mileage_kml must be a number' })
+      .positive({ message: 'truck_mileage_kml must be greater than 0' })
+  ),
+  cargo_weight_kg: coerceNumber(
+    z.number({ invalid_type_error: 'cargo_weight_kg must be a number' })
+      .positive({ message: 'cargo_weight_kg must be greater than 0' })
+  ),
+  trip_duration_hours: coerceNumber(
+    z.number({ invalid_type_error: 'trip_duration_hours must be a number' })
+      .positive({ message: 'trip_duration_hours must be greater than 0' })
+  ),
+}).strict();
+
 export const shareTrackingSchema = z.object({}).strict();
 
 export const publicTrackingTokenSchema = z.object({

@@ -8,6 +8,7 @@ import '../models/app_models.dart';
 import '../models/deadhead_recommendation.dart';
 import '../models/marketplace_models.dart';
 import 'api_client.dart';
+import 'driver_insights_service.dart';
 
 class MarketplaceRepository {
   MarketplaceRepository({
@@ -341,6 +342,45 @@ class MarketplaceRepository {
     };
 
     return controller.stream;
+  }
+
+  Future<ProfitPrediction> predictLoadProfit({
+    required LoadOffer load,
+    required double truckMileageKmL,
+    required double fuelPricePerLitre,
+    required double tripDurationHours,
+  }) async {
+    final routeDistanceKm = _parseDistanceKm(load.routeDistance);
+    final tollEstimateInr = _parseCurrencyInr(load.tollCost);
+    final cargoWeightKg = load.weightKg ?? 0;
+
+    if (routeDistanceKm <= 0 || cargoWeightKg <= 0 || truckMileageKmL <= 0) {
+      throw StateError('Insufficient data for profit prediction');
+    }
+
+    final service = DriverInsightsService(apiBaseUrl: _apiBaseUrl);
+    try {
+      return await service.predictProfit(
+        routeDistanceKm: routeDistanceKm,
+        fuelPricePerLitre: fuelPricePerLitre,
+        tollEstimateInr: tollEstimateInr,
+        truckMileageKmL: truckMileageKmL,
+        cargoWeightKg: cargoWeightKg,
+        tripDurationHours: tripDurationHours,
+      );
+    } finally {
+      service.dispose();
+    }
+  }
+
+  double _parseDistanceKm(String distance) {
+    final cleaned = distance.replaceAll(RegExp(r'[^0-9.]'), '');
+    return double.tryParse(cleaned) ?? 0;
+  }
+
+  double _parseCurrencyInr(String value) {
+    final cleaned = value.replaceAll(RegExp(r'[^0-9]'), '');
+    return double.tryParse(cleaned) ?? 0;
   }
 
   String _formatCurrency(num value) {

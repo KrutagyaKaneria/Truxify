@@ -151,28 +151,6 @@ export async function predictPrice({
   };
   priceCache.set(cacheKey, result);
   return result;
-  const result = validatePricePrediction(raw);
-  if (!result.ok) {
-      logger.warn({
-          reason: result.reason,
-          detail: result.detail,
-          response_keys: raw && typeof raw === 'object' ? Object.keys(raw) : typeof raw,
-      }, '[ML] Price prediction rejected by validator');
-      throw new Error(`[ML] Invalid prediction: ${result.reason} — ${result.detail}`);
-  }
-
-  logger.debug({
-      estimated_price_inr: result.validated.estimated_price,
-      confidence: result.validated.confidence,
-  }, '[ML] Price prediction validated successfully');
-
-  const validated = {
-      ...result.validated,
-      estimatedPricePaisa: convertToPaisa(result.validated.estimated_price),
-      estimatedPriceInr: result.validated.estimated_price,
-  };
-  priceCache.set(cacheKey, validated);
-  return validated;
 }
 
 /**
@@ -213,21 +191,67 @@ export async function matchBilateral(shipmentData) {
 }
 
 /**
- * Predicts driver profit for a given route.
- * @param {string} driverId
- * @param {object} route - { distance_km, origin, destination, tolls }
- * @returns {Promise<{estimated_profit: number, confidence: number}>}
+ * Predicts driver profit for a given route using ML model.
+ *
+ * @param {object} params
+ * @param {number} params.routeDistanceKm  - Total route distance in km (must be > 0)
+ * @param {number} params.fuelPricePerLitre - Current fuel price in INR/L (must be > 0)
+ * @param {number} params.tollEstimateInr  - Estimated toll cost in INR (must be >= 0)
+ * @param {number} params.truckMileageKmL  - Truck fuel efficiency in km/L (must be > 0)
+ * @param {number} params.cargoWeightKg    - Cargo weight in kg (must be > 0)
+ * @param {number} params.tripDurationHours - Estimated trip duration in hours (must be > 0)
+ * @returns {Promise<{predicted_profit: number, confidence_interval: {lower: number, upper: number}}>}
+ * @throws {Error} if ML_API_KEY is missing, HTTP fails, or response is invalid
  */
-export async function predictDriverProfit(driverId, route) {
-  const baseUrl = process.env.ML_ENGINE_URL || DEFAULT_ML_ENGINE_URL;
-  const url = `${baseUrl}/predict/driver-profit`;
+export async function predictDriverProfit({
+  routeDistanceKm,
+  fuelPricePerLitre,
+  tollEstimateInr,
+  truckMileageKmL,
+  cargoWeightKg,
+  tripDurationHours,
+}) {
+  guardMlApiKey();
+  const url = `${getBaseUrl()}/predict/driver-profit`;
+
+  const payload = {
+    route_distance: routeDistanceKm,
+    fuel_price: fuelPricePerLitre,
+    toll_estimate: tollEstimateInr,
+    truck_mileage: truckMileageKmL,
+    cargo_weight: cargoWeightKg,
+    trip_duration: tripDurationHours,
+  };
+
   const response = await fetch(url, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ driver_id: driverId, ...route }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(5000),
   });
-  return handleResponse(response);
+
+  const result = await handleResponse(response);
+
+  if (
+    result == null ||
+    typeof result.predicted_profit !== 'number' ||
+    !isFinite(result.predicted_profit)
+  ) {
+    throw new Error('[ML] Invalid driver profit prediction: missing or non-finite predicted_profit');
+  }
+
+  if (result.confidence_interval == null || typeof result.confidence_interval !== 'object') {
+    throw new Error('[ML] Invalid driver profit prediction: missing confidence_interval');
+  }
+
+  return {
+    predicted_profit: Math.round(result.predicted_profit * 100) / 100,
+    confidence_interval: {
+      lower: Math.max(0, Math.round((result.confidence_interval.lower ?? 0) * 100) / 100),
+      upper: Math.round((result.confidence_interval.upper ?? result.predicted_profit * 2) * 100) / 100,
+    },
+    currency: 'INR',
+  };
 }
 
 /**

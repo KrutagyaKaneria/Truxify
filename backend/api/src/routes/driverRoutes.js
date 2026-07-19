@@ -1,12 +1,13 @@
 import express from 'express';
 import { supabase, redisClient, createUserClient } from '../config/db.js';
 import { getDriverReputation } from '../services/reputation.js';
+import { predictDriverProfit } from '../services/ml.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePolicy } from '../middleware/requirePolicy.js';
 import { userLimiter, createStore } from '../middleware/rateLimiter.js';
 
 import { validateBody, validateParams } from '../middleware/validate.js';
-import { driverOnlineSchema, withdrawSchema, uuidParamSchema, paramIdSchema } from '../validation/requestSchemas.js';
+import { driverOnlineSchema, withdrawSchema, uuidParamSchema, paramIdSchema, predictDriverProfitSchema } from '../validation/requestSchemas.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import logger from '../middleware/logger.js';
@@ -455,6 +456,55 @@ router.post('/wallet/withdraw', authenticate, userLimiter, requirePolicy('driver
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
+// ============================================================================
+// 10b. ML-POWERED PROFIT PREDICTION (DRIVER)
+// ============================================================================
+const predictProfitLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: { error: 'Too many prediction requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post(
+  '/predict-profit',
+  authenticate,
+  predictProfitLimiter,
+  requirePolicy('driver:view-stats'),
+  validateBody(predictDriverProfitSchema),
+  async (req, res) => {
+    try {
+      const {
+        route_distance_km,
+        fuel_price_per_litre,
+        toll_estimate_inr,
+        truck_mileage_kml,
+        cargo_weight_kg,
+        trip_duration_hours,
+      } = req.body;
+
+      const result = await predictDriverProfit({
+        routeDistanceKm: route_distance_km,
+        fuelPricePerLitre: fuel_price_per_litre,
+        tollEstimateInr: toll_estimate_inr,
+        truckMileageKmL: truck_mileage_kml,
+        cargoWeightKg: cargo_weight_kg,
+        tripDurationHours: trip_duration_hours,
+      });
+
+      res.json({ prediction: result });
+    } catch (err) {
+      if (err.message?.includes('[ML]')) {
+        logger.warn({ err: err.message }, 'ML engine unavailable for profit prediction');
+        return res.status(503).json({ error: 'Profit prediction service is temporarily unavailable.' });
+      }
+      logger.error({ err }, 'Profit prediction failed');
+      res.status(500).json({ error: 'Profit prediction failed.' });
+    }
+  },
+);
 
 // ============================================================================
 // 11. GET DRIVER REPUTATION (DRIVER)
