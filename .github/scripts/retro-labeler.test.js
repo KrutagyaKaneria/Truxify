@@ -34,7 +34,7 @@ test('checkRetroChanges removes gssoc:approved and difficulty labels from Depend
   assert.deepEqual(result.toRemove, ['gssoc:approved', 'level:beginner']);
 });
 
-test('checkRetroChanges does not add labels to unmerged closed human PR but does migrate Beginner if present', () => {
+test('checkRetroChanges does not add labels to unmerged closed human PR but does migrate Beginner if present and removes gssoc:approved', () => {
   const result1 = checkRetroChanges({
     labels: [],
     merged_at: null,
@@ -50,6 +50,14 @@ test('checkRetroChanges does not add labels to unmerged closed human PR but does
   });
   assert.deepEqual(result2.toAdd, ['level:beginner']);
   assert.deepEqual(result2.toRemove, ['Beginner']);
+
+  const result3 = checkRetroChanges({
+    labels: [{ name: 'gssoc:approved' }],
+    merged_at: null,
+    user: { login: 'human' }
+  });
+  assert.deepEqual(result3.toAdd, []);
+  assert.deepEqual(result3.toRemove, ['gssoc:approved']);
 });
 
 test('run function performs additions and removals correctly', async () => {

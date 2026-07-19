@@ -56,6 +56,12 @@ function checkRetroChanges(pr) {
       if (!hasDifficulty && !toRemove.some(r => r.toLowerCase().includes('beginner'))) {
         toAdd.push('level:beginner');
       }
+    } else {
+      // Closed but NOT merged
+      if (currentLabelsLower.includes('gssoc:approved')) {
+        const originalLabel = currentLabels.find(l => l.toLowerCase() === 'gssoc:approved');
+        toRemove.push(originalLabel || 'gssoc:approved');
+      }
     }
   }
 
