@@ -44,9 +44,9 @@ const POLICIES = {
   'load-offer:browse':         { roles: [ROLES.DRIVER] },
 
   'profile:view':              {},
-  'profile:update':            {},
-  'profile:update-wallet':     {},
-  'profile:update-fcm':        {},
+  'profile:update':            { ownership: (u, r) => r?.profile && r.profile.id === u.id },
+  'profile:update-wallet':     { ownership: (u, r) => r?.profile && r.profile.id === u.id },
+  'profile:update-fcm':        { ownership: (u, r) => r?.profile && r.profile.id === u.id },
   'profile:view-statement':    { roles: [ROLES.DRIVER] },
 
   'driver:view-stats':         { roles: [ROLES.DRIVER] },
