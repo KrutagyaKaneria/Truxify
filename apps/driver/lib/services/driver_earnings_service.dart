@@ -1,3 +1,4 @@
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/earnings_daily_model.dart';
@@ -8,8 +9,9 @@ class DriverEarningsService {
     SupabaseClient? client,
     ApiClient? apiClient,
     String? apiBaseUrl,
+    http.Client? httpClient,
   })  : _providedClient = client,
-        _apiClient = apiClient ?? ApiClient(baseUrl: apiBaseUrl),
+        _apiClient = apiClient ?? ApiClient(baseUrl: apiBaseUrl, httpClient: httpClient),
         _apiBaseUrl = (apiBaseUrl ?? defaultApiBaseUrl).replaceFirst(RegExp(r'/$'), '',);
 
   static const String defaultApiBaseUrl = String.fromEnvironment(
@@ -304,6 +306,44 @@ class DriverEarningsService {
       rethrow;
     } catch (e) {
       throw Exception('Network error: Failed to withdraw funds.');
+    }
+  }
+
+  /// Fetches the driver's earnings statement for a date range.
+  ///
+  /// When [format] is `"json"`, returns parsed JSON data.
+  /// When [format] is `"csv"`, returns the raw CSV as a [String].
+  Future<dynamic> fetchStatement({
+    required DateTime startDate,
+    required DateTime endDate,
+    String format = "json",
+  }) async {
+    final startStr =
+        '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}';
+    final endStr =
+        '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}';
+
+    final path =
+        '/api/profile/driver/statement?start_date=$startStr&end_date=$endStr&format=$format';
+
+    if (format == 'csv') {
+      try {
+        final raw = await _apiClient.getRaw(path);
+        return raw;
+      } on ApiException {
+        rethrow;
+      } catch (e) {
+        throw Exception('Network error: Failed to fetch statement CSV.');
+      }
+    }
+
+    try {
+      final decoded = await _apiClient.get(path);
+      return decoded;
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw Exception('Network error: Failed to fetch earnings statement.');
     }
   }
 

@@ -195,6 +195,25 @@ class ApiClient {
     return _decode(response);
   }
 
+  /// Performs a GET request and returns the raw response body as [String].
+  ///
+  /// Useful for downloading non-JSON payloads such as CSV files.
+  Future<String> getRaw(String path, {Map<String, String>? headers}) async {
+    final uri = _buildUri(path);
+    final response = await _execute(
+      (h) => _http.get(uri, headers: h),
+      additionalHeaders: headers,
+    );
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.body;
+    }
+    throw ApiException(
+      response.statusCode,
+      'Failed to fetch raw response',
+      body: response.body,
+    );
+  }
+
   Future<dynamic> post(String path, {Object? body, Map<String, String>? headers}) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;

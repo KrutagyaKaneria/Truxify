@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:truxify_driver/l10n/app_localizations.dart';
 import 'package:truxify_driver/models/earnings_daily_model.dart';
+import 'package:truxify_driver/models/earnings_statement_model.dart';
 import 'package:truxify_driver/services/driver_earnings_service.dart';
+import 'package:truxify_driver/services/earnings_export_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/earnings/withdraw_bottom_sheet.dart';
 import '../widgets/earnings_shimmer.dart';
@@ -16,9 +18,11 @@ class EarningsScreen extends StatefulWidget {
 
 class _EarningsScreenState extends State<EarningsScreen> {
   final DriverEarningsService _earningsService = DriverEarningsService();
+  final EarningsExportService _exportService = EarningsExportService();
 
   bool _isMonthLoading = false;
   bool _isLoading = true;
+  bool _isExporting = false;
 
   late DateTime _selectedDate;
   late int _currentYear;
@@ -230,6 +234,239 @@ class _EarningsScreenState extends State<EarningsScreen> {
     return (double.tryParse(value.toString()) ?? 0.0) / 100.0;
   }
 
+  // ── Export ──────────────────────────────────────────────────────────
+
+  Future<void> _showExportDatePicker() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: DateTimeRange(
+        start: DateTime(now.year, now.month, 1),
+        end: now,
+      ),
+      helpText: 'Select date range for statement',
+    );
+
+    if (picked == null || !mounted) return;
+    _showExportOptions(picked.start, picked.end);
+  }
+
+  void _showExportOptions(DateTime start, DateTime end) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  height: 4,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Export Statement',
+                style: GoogleFonts.dmSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_formatFullDate(start)} – ${_formatFullDate(end)}',
+                style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  color: TruxifyColors.adaptiveSecondaryText(context),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: _exportOptionTile(
+                  icon: Icons.download_rounded,
+                  title: 'Download CSV',
+                  subtitle: 'Comma-separated values file',
+                  color: TruxifyColors.success,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _exportCsv(start, end);
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: _exportOptionTile(
+                  icon: Icons.picture_as_pdf_rounded,
+                  title: 'Export PDF',
+                  subtitle: 'Formatted earnings statement',
+                  color: TruxifyColors.warning,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _exportPdf(start, end);
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _exportOptionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.dmSans(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.dmSans(
+                        fontSize: 12,
+                        color: TruxifyColors.adaptiveSecondaryText(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  color: TruxifyColors.adaptiveSecondaryText(context)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportCsv(DateTime start, DateTime end) async {
+    setState(() => _isExporting = true);
+
+    try {
+      final csv = await _earningsService.fetchStatement(
+        startDate: start,
+        endDate: end,
+        format: 'csv',
+      ) as String;
+
+      if (!mounted) return;
+
+      final startLabel =
+          '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
+      final endLabel =
+          '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
+      await _exportService.shareCsv(csv, 'earnings_$startLabel-$endLabel.csv');
+
+      if (!mounted) return;
+      _showSnackBar('CSV downloaded successfully', TruxifyColors.success);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(
+        _errorMessage(e),
+        TruxifyColors.error,
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _exportPdf(DateTime start, DateTime end) async {
+    setState(() => _isExporting = true);
+
+    try {
+      final json = await _earningsService.fetchStatement(
+        startDate: start,
+        endDate: end,
+        format: 'json',
+      );
+
+      if (!mounted) return;
+
+      final statement = EarningsStatementModel.fromJson(
+        json as Map<String, dynamic>,
+      );
+
+      await _exportService.sharePdf(statement);
+
+      if (!mounted) return;
+      _showSnackBar('PDF exported successfully', TruxifyColors.success);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(
+        _errorMessage(e),
+        TruxifyColors.error,
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  String _errorMessage(Object e) {
+    final msg = e.toString();
+    if (msg.startsWith('Exception: ')) return msg.substring(11);
+    if (msg.startsWith('ApiException(')) {
+      final idx = msg.indexOf('): ');
+      if (idx != -1) return msg.substring(idx + 3);
+      return msg;
+    }
+    return msg;
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _showWithdrawSheet() async {
     final didWithdraw = await showWithdrawBottomSheet(
       context,
@@ -257,7 +494,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
           onRefresh: _loadAllData,
           child: CustomScrollView(
             slivers: [
-              // Premium App Bar
               SliverAppBar(
                 backgroundColor: Theme.of(context).colorScheme.surface,
                 pinned: true,
@@ -271,6 +507,26 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
+                actions: [
+                  if (_isExporting)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 16),
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: Icon(
+                        Icons.file_download_outlined,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                      tooltip: 'Export statement',
+                      onPressed: _isExporting ? null : _showExportDatePicker,
+                    ),
+                ],
                 bottom: PreferredSize(
                   preferredSize: const Size.fromHeight(1),
                   child: Container(
@@ -453,11 +709,10 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
   Widget _buildHeatmapCalendarCard({Key? key}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Days in current selection
     final DateTime firstDay = DateTime(_currentYear, _currentMonth, 1);
-    final int firstWeekday = firstDay.weekday; // 1 = Mon, 7 = Sun
+    final int firstWeekday = firstDay.weekday;
     final int totalDays = DateTime(_currentYear, _currentMonth + 1, 0).day;
-    final int leadingEmptyCells = firstWeekday - 1; // 0-indexed offset
+    final int leadingEmptyCells = firstWeekday - 1;
 
     final int totalGridItems = leadingEmptyCells + totalDays;
 
@@ -506,7 +761,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   ),
                 ],
               ),
-              // Month Switchers
               Row(
                 children: [
                   IconButton(
@@ -549,7 +803,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Weekday Labels Row
           Row(
             children: ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label) {
               return Expanded(
@@ -568,7 +821,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Calendar Heatmap Grid
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -593,7 +845,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
               final earningData = _earningsMap[cellKey];
               final earnings = earningData?.amount ?? 0.0;
 
-              // Determine color based on earnings magnitude relative to max ₹8,400
               Color cellBgColor = isDark
                   ? TruxifyColors.darkBorder.withValues(alpha: 0.5)
                   : Theme.of(context)
@@ -618,7 +869,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   textWeight = FontWeight.w600;
                 }
               } else if (earningData != null && earnings == 0.0) {
-                // Cancelled day (grey card outline style)
                 cellBgColor = Theme.of(context)
                     .colorScheme
                     .outlineVariant
@@ -671,7 +921,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Heatmap Legend
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
