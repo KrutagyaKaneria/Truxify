@@ -31,11 +31,13 @@ export async function uploadMaintenancePhotos(req, res) {
       return res.status(400).json({ error: 'ticketId is required' });
     }
 
-    if (!req.files || req.files.length === 0) {
+    const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+
+    if (uploadedFiles.length === 0) {
       return res.status(400).json({ error: 'At least one photo file is required' });
     }
 
-    if (req.files.length > MAX_PHOTOS) {
+    if (uploadedFiles.length > MAX_PHOTOS) {
       return res.status(400).json({ error: `Maximum ${MAX_PHOTOS} photos allowed` });
     }
 
@@ -60,15 +62,15 @@ export async function uploadMaintenancePhotos(req, res) {
     }
 
     const existingUrls = ticket.photo_urls || [];
-    if (existingUrls.length + req.files.length > MAX_PHOTOS) {
+    if (existingUrls.length + uploadedFiles.length > MAX_PHOTOS) {
       return res.status(400).json({
         error: `Ticket already has ${existingUrls.length} photo(s). Maximum ${MAX_PHOTOS} allowed.`,
       });
     }
 
     // Validate and upload each file
-    for (let i = 0; i < req.files.length; i += 1) {
-      const file = req.files[i];
+    for (let i = 0; i < uploadedFiles.length; i += 1) {
+      const file = uploadedFiles[i];
 
       let verifiedMimeType;
       try {
