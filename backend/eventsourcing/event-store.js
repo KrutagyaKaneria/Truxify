@@ -230,7 +230,11 @@ class EventStore {
 
     async getAggregateState(aggregateId) {
         const events = await this.getEventStream(aggregateId);
-        if (events.length === 0) return null;
+        if (events.length === 0) {
+            // Check snapshot for last known state when event stream is empty
+            const snapshot = await this.getSnapshot(aggregateId);
+            return snapshot ? snapshot.state : null;
+        }
 
         // Apply events to build state
         let state = { id: aggregateId, version: 0 };
