@@ -262,14 +262,21 @@ class DIDService {
     }
 
     async getDIDStats() {
-        const { data: dids } = await supabase.from('dids').select('*').order('created_at', { ascending: false }).limit(100);
-        const { data: credentials } = await supabase.from('credentials').select('*').order('issued_at', { ascending: false }).limit(100);
+        const { data: dids, error: didsErr } = await supabase.from('dids').select('*').order('created_at', { ascending: false }).limit(100);
+        const { data: credentials, error: credsErr } = await supabase.from('credentials').select('*').order('issued_at', { ascending: false }).limit(100);
+
+        if (didsErr || credsErr) {
+            logger.error('Failed to fetch DID stats', { didsErr, credsErr });
+        }
+
+        const safeDids = dids || [];
+        const safeCreds = credentials || [];
 
         return {
-            totalDIDs: dids.length,
-            activeDIDs: dids.filter(d => d.is_active !== false).length,
-            totalCredentials: credentials.length,
-            revokedCredentials: credentials.filter(c => c.revoked === true).length
+            totalDIDs: safeDids.length,
+            activeDIDs: safeDids.filter(d => d.is_active !== false).length,
+            totalCredentials: safeCreds.length,
+            revokedCredentials: safeCreds.filter(c => c.revoked === true).length
         };
     }
 }
