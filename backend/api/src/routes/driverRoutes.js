@@ -84,10 +84,13 @@ router.put('/online', authenticate, userLimiter, requirePolicy('driver:toggle-on
       .update({ is_online, updated_at: new Date().toISOString() })
       .eq('user_id', req.user.id)
       .select('is_online')
-      .single();
+      .maybeSingle();
 
     if (error) {
       return res.status(500).json({ error: 'Failed to update online state.', details: error.message });
+    }
+    if (!details) {
+      return res.status(404).json({ error: 'Driver profile not found.' });
     }
 
     res.json({
