@@ -83,6 +83,7 @@ class DeferredRedisStore {
 export function safeIpKeyGenerator(req) {
   let ip = req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
   if (typeof ip === 'string') {
+    if (ip.includes(',')) ip = ip.split(',')[0].trim();
     ip = ip.replace(/^::ffff:/, '');
     if (ip === '::1') ip = '127.0.0.1';
   }
