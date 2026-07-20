@@ -17,11 +17,13 @@ class SecretSharing:
     def __init__(self):
         self.prime = 2**127 - 1  # Large prime for field operations
         self.parties = []
+        self.threshold = None
         
     def generate_shares(self, secret: int, n: int, k: int) -> List[Tuple[int, int]]:
         """Generate n shares with threshold k"""
         if k > n:
             raise ValueError("Threshold cannot be greater than number of shares")
+        self.threshold = k
         
         coeffs = [secret] + [secrets.randbelow(self.prime) for _ in range(k-1)]
         
@@ -40,6 +42,9 @@ class SecretSharing:
         return result
     
     def reconstruct_secret(self, shares: List[Tuple[int, int]]) -> int:
+        """Reconstruct secret from shares"""
+        if self.threshold and len(shares) < self.threshold:
+            raise ValueError(f"Need at least {self.threshold} shares to reconstruct, got {len(shares)}")
         if len(shares) < 2:
             raise ValueError("Need at least 2 shares to reconstruct")
         
@@ -256,6 +261,7 @@ class SMPCProtocol:
         return list(max_share.values())
     
     def _secure_compare(self, shares1: Dict[str, bytes], shares2: Dict[str, bytes]) -> Dict[str, bytes]:
+        """Secure comparison of two shared values"""
         vals1 = [pickle.loads(self.cipher.decrypt(v)) for v in shares1.values()]
         vals2 = [pickle.loads(self.cipher.decrypt(v)) for v in shares2.values()]
         sum1 = sum(v[1] for v in vals1) % self.secret_sharing.prime
