@@ -97,7 +97,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   String? _formatRupeesFromPaise(dynamic value) {
     if (value is! num) return null;
-    return 'Rs ${(value / 100).toStringAsFixed(0)}';
+    return '₹ ${(value / 100).toStringAsFixed(0)}';
   }
 
   Future<void> _loadOrderAndTimeline() async {
