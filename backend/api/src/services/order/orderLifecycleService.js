@@ -689,7 +689,7 @@ export class OrderLifecycleService {
           };
         }
       } else if (order.escrow_booking_id) {
-        logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) — skipping on-chain refund.`);
+        logger.info(`[escrow] Escrow not funded (status: ${order.escrow_status}) - skipping on-chain refund.`);
       }
 
       const updatePayload = {
@@ -806,7 +806,7 @@ export class OrderLifecycleService {
         logger.error(`[OrderLifecycle] Failed to emit rating:submitted event: ${err.message}`);
       }
     } else {
-      logger.warn(`[reputation] Driver ${order.driver_id} has no polygon_wallet_address — skipping on-chain update.`);
+      logger.warn(`[reputation] Driver ${order.driver_id} has no polygon_wallet_address - skipping on-chain update.`);
     }
 
     return {
