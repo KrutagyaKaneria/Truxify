@@ -190,10 +190,15 @@ contract StateChannel is Ownable, ReentrancyGuard, Pausable {
         channel.isOpen = false;
         channel.lastUpdated = block.timestamp;
 
+        // Capture final balances before settlement
+        uint256 finalBalanceA = channel.balanceA;
+        uint256 finalBalanceB = channel.balanceB;
+
+        // Emit event before zeroing balances
+        emit ChannelClosed(channelId, finalBalanceA, finalBalanceB);
+
         // Settle balances
         _settleChannel(channelId);
-
-        emit ChannelClosed(channelId, channel.balanceA, channel.balanceB);
     }
 
     function _settleChannel(uint256 channelId) internal {
