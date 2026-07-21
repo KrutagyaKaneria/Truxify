@@ -91,7 +91,7 @@ class ZKPService {
         proof.b,
         proof.c,
         proof.input,
-        userData.address
+        userData.wallet_address
       );
       
       const receipt = await tx.wait();
@@ -154,7 +154,7 @@ class ZKPService {
       const userData = await this.getUserAddress(userId);
       if (!userData) return false;
       
-      const verified = await this.contract.isVerified(userData.address);
+      const verified = await this.contract.isVerified(userData.wallet_address);
       return verified;
     } catch (error) {
       logger.error('Verification check failed:', error);
@@ -168,7 +168,7 @@ class ZKPService {
       const userData = await this.getUserAddress(userId);
       if (!userData) return null;
       
-      const hash = await this.contract.getDocumentHash(userData.address);
+      const hash = await this.contract.getDocumentHash(userData.wallet_address);
       return hash;
     } catch (error) {
       logger.error('Document hash fetch failed:', error);
