@@ -18,6 +18,7 @@ class FraudDetectionService {
     this._totalRiskScoresEvicted = 0;
     this._totalBehavioralProfilesEvicted = 0;
     this._cleanupInterval = setInterval(() => this._evictStale(), 300_000); // every 5 min
+    this._cleanupInterval.unref?.();
     
     // Initialize ML models (in production, load from FastAPI)
     this.models = {
