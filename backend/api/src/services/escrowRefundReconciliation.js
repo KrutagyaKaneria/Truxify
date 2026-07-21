@@ -65,6 +65,14 @@ export async function reconcilePendingEscrowRefunds(orderRepository) {
     }
 
     for (const order of pendingOrders ?? []) {
+      if (globalLockAcquired && redisClient) {
+        try {
+          await redisClient.expire(LOCK_KEY, LOCK_TTL_SECONDS);
+        } catch (err) {
+          logger.warn('[escrow-reconciliation] Failed to refresh lock:', err.message);
+        }
+      }
+
       const lockKey = `escrow_lock:${order.id}`;
       const lockValue = await acquireLock(lockKey, 30000);
       if (!lockValue) {
