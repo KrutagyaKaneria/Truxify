@@ -14,6 +14,7 @@ class ConsulService {
         this.services = {};
         this.serviceCache = new Map();
         this.healthChecks = {};
+        this._healthInterval = null;
 
         // Start health checks
         this.startHealthChecks();
@@ -142,9 +143,16 @@ class ConsulService {
     // ============ Health Checks ============
 
     startHealthChecks() {
-        setInterval(async () => {
+        this._healthInterval = setInterval(async () => {
             await this.checkAllServices();
         }, 30000); // Every 30 seconds
+    }
+
+    stopHealthChecks() {
+        if (this._healthInterval) {
+            clearInterval(this._healthInterval);
+            this._healthInterval = null;
+        }
     }
 
     async checkAllServices() {
