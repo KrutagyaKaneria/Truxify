@@ -4,13 +4,11 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard {
-    using Counters for Counters.Counter;
-
+    
     // ============ Structs ============
 
     struct Asset {
@@ -57,8 +55,8 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
     mapping(uint256 => TradeOrder[]) public tradeOrders;
     mapping(uint256 => bool) public assetExists;
 
-    Counters.Counter private _assetCounter;
-    Counters.Counter private _tradeOrderCounter;
+    uint256 private _assetCounter;
+    uint256 private _tradeOrderCounter;
 
     uint256 public constant MIN_TRADE_AMOUNT = 1e18; // 1 token
     uint256 public constant MAX_TRADE_AMOUNT = 10000e18; // 10000 tokens
@@ -92,8 +90,8 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
         require(totalValue > 0, "Value must be > 0");
         require(totalTokens > 0, "Tokens must be > 0");
 
-        _assetCounter.increment();
-        uint256 assetId = _assetCounter.current();
+        _assetCounter++;
+        uint256 assetId = _assetCounter;
 
         uint256 tokenPrice = totalValue / totalTokens;
 
@@ -213,8 +211,8 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
         require(amount <= MAX_TRADE_AMOUNT, "Amount too large");
         require(price > 0, "Price must be > 0");
 
-        _tradeOrderCounter.increment();
-        uint256 orderId = _tradeOrderCounter.current();
+        _tradeOrderCounter++;
+        uint256 orderId = _tradeOrderCounter;
 
         // Escrow seller's tokens into the contract
         _transfer(msg.sender, address(this), amount);
@@ -344,11 +342,11 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
     }
 
     function getTotalAssets() external view returns (uint256) {
-        return _assetCounter.current();
+        return _assetCounter;
     }
 
     function getTotalTradeOrders() external view returns (uint256) {
-        return _tradeOrderCounter.current();
+        return _tradeOrderCounter;
     }
 
     function getUserAssets(address user) external view returns (uint256[] memory) {

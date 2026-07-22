@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'api_client.dart';
 
 class FcmService {
-  static final String _apiBaseUrl = 'http://localhost:5000';
   static final ApiClient apiClient = ApiClient();
   static bool _initialized = false;
   static StreamSubscription<String>? _tokenRefreshSub;
@@ -119,4 +118,4 @@ class FcmService {
     }
   }
 }
-export 'package:truxify_shared/src/services/fcm_service.dart';
+export 'package:truxify_shared/src/services/fcm_service.dart' hide FcmService;

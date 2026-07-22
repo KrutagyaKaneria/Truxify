@@ -2,16 +2,14 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract DAO is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
-    using Counters for Counters.Counter;
-
+    
     // ============ Structs ============
 
     struct Proposal {
@@ -75,8 +73,8 @@ contract DAO is Ownable, ReentrancyGuard, Pausable {
     mapping(address => Member) public members;
     mapping(address => uint256[]) public memberProposals;
 
-    Counters.Counter private _proposalCounter;
-    Counters.Counter private _memberCounter;
+    uint256 private _proposalCounter;
+    uint256 private _memberCounter;
 
     uint256 public votingPeriod = 7 days;
     uint256 public votingDelay = 1 hours;
@@ -122,7 +120,7 @@ contract DAO is Ownable, ReentrancyGuard, Pausable {
         require(!members[msg.sender].isActive, "Already a member");
         require(IERC20(governanceToken).balanceOf(msg.sender) >= proposalThreshold, "Insufficient balance");
 
-        _memberCounter.increment();
+        _memberCounter++;
         members[msg.sender] = Member({
             member: msg.sender,
             joinedAt: block.timestamp,
@@ -162,8 +160,8 @@ contract DAO is Ownable, ReentrancyGuard, Pausable {
         require(target != address(0), "Invalid target");
         require(members[msg.sender].votingPower >= proposalThreshold, "Insufficient voting power");
 
-        _proposalCounter.increment();
-        uint256 proposalId = _proposalCounter.current();
+        _proposalCounter++;
+        uint256 proposalId = _proposalCounter;
 
         proposals[proposalId] = Proposal({
             id: proposalId,
@@ -340,7 +338,7 @@ contract DAO is Ownable, ReentrancyGuard, Pausable {
     }
 
     function getTotalProposals() external view returns (uint256) {
-        return _proposalCounter.current();
+        return _proposalCounter;
     }
 
     function getTotalMembers() external view returns (uint256) {
