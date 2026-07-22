@@ -16,6 +16,18 @@ function validatePlatform(platform) {
   return VALID_PLATFORMS.includes(platform) ? null : `Platform must be one of: ${VALID_PLATFORMS.join(', ')}`;
 }
 
+function normalizeMetadata(metadata) {
+  if (metadata === undefined || metadata === null) return {};
+  if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return { error: 'metadata must be an object' };
+  }
+  const prototype = Object.getPrototypeOf(metadata);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return { error: 'metadata must be an object' };
+  }
+  return metadata;
+}
+
 /**
  * Register / update FCM token for a user device
  */
@@ -38,6 +50,11 @@ export async function registerDeviceToken(req, res, next) {
       return next(new ValidationError(platErr));
     }
 
+    const normalizedMetadata = normalizeMetadata(metadata);
+    if (normalizedMetadata.error) {
+      return res.status(400).json({ error: normalizedMetadata.error });
+    }
+
     const tokenUpdatedAt = new Date().toISOString();
     const { data: existingDevice, error: lookupError } = await supabase
       .from('user_devices')
@@ -57,7 +74,7 @@ export async function registerDeviceToken(req, res, next) {
         user_id: userId,
         fcm_token: fcmToken,
         platform: platform || 'android',
-        metadata: metadata || {}
+        metadata: normalizedMetadata
       },
       { onConflict: 'fcm_token' }
     );
@@ -123,8 +140,11 @@ export async function unregisterDeviceToken(req, res, next) {
       return next(new UnauthorizedError('User not authenticated'));
     }
 
-    if (!fcmToken) {
-      return next(new ValidationError('fcmToken is required'));
+    const tokenErr = validateFcmToken(fcmToken);
+    if (tokenErr) {
+      return res.status(400).json({
+        error: tokenErr
+      });
     }
 
     const { error: deleteError } = await supabase
@@ -161,6 +181,17 @@ export async function unregisterDeviceToken(req, res, next) {
   } catch (err) {
     logger.error('[DeviceController] Unexpected error in unregisterDeviceToken:', err.message);
     return next(err);
+  }
+}
+
+export async function unregisterAllDeviceTokens(userId) {
+  const { error } = await supabase
+    .from('user_devices')
+    .delete()
+    .eq('user_id', userId);
+  if (error) {
+    logger.error('[DeviceController] Failed to unregister device tokens:', error.message);
+    throw error;
   }
 }
 
