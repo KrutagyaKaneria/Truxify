@@ -116,6 +116,10 @@ class WeighStationService {
     }
   }
 
+  void resetAlertedStations() {
+    _alertedStations.clear();
+  }
+
   void dispose() {
     _locationSub?.cancel();
     _eventController.close();
