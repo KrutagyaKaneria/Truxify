@@ -215,6 +215,9 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
         _tradeOrderCounter.increment();
         uint256 orderId = _tradeOrderCounter.current();
 
+        // Escrow seller's tokens into the contract
+        _transfer(msg.sender, address(this), amount);
+
         TradeOrder memory order = TradeOrder({
             orderId: orderId,
             tokenId: assetId,
@@ -248,8 +251,8 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
         uint256 totalCost = order.amount * order.price;
         require(msg.value >= totalCost, "Insufficient payment");
 
-        // Transfer tokens
-        _transfer(order.seller, msg.sender, order.amount);
+        // Transfer escrowed tokens from contract to buyer
+        _transfer(address(this), msg.sender, order.amount);
 
         // Update order
         order.buyer = msg.sender;
@@ -272,6 +275,9 @@ contract AssetToken is ERC20, ERC20Burnable, Ownable, Pausable, ReentrancyGuard 
         TradeOrder storage order = tradeOrders[assetId][orderIndex];
         require(order.seller == msg.sender, "Not seller");
         require(order.isActive, "Order not active");
+
+        // Return escrowed tokens to seller
+        _transfer(address(this), order.seller, order.amount);
 
         order.isActive = false;
     }
