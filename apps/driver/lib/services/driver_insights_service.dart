@@ -39,20 +39,9 @@ class DriverInsightsService {
   DriverInsightsService({
     ApiClient? apiClient,
     String? apiBaseUrl,
-  })  : _apiClient = apiClient ?? ApiClient(baseUrl: apiBaseUrl),
-        _apiBaseUrl = _normalizeBaseUrl(apiBaseUrl ?? defaultApiBaseUrl);
-
-  static const String defaultApiBaseUrl = String.fromEnvironment(
-    'TRUXIFY_API_BASE_URL',
-    defaultValue: 'http://localhost:5000',
-  );
+  }) : _apiClient = apiClient ?? ApiClient(baseUrl: apiBaseUrl);
 
   final ApiClient _apiClient;
-  final String _apiBaseUrl;
-
-  static String _normalizeBaseUrl(String value) {
-    return value.endsWith('/') ? value.substring(0, value.length - 1) : value;
-  }
 
   void dispose() {
     _apiClient.dispose();
