@@ -360,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 8),
                       PrimaryButton(
                         label: '${AppLocalizations.of(context)!.bookATruck} \u{1f69b}',
-                        onPressed: () => controller.openFindTrucks(draft: mockDefaultRouteDraft),
+                        onPressed: () => controller.openFindTrucks(),
                       ),
                     ],
                     ),
