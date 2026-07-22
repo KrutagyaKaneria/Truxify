@@ -284,8 +284,20 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Payload parsers
-app.use(express.json({ limit: '1mb' })) // Added payload limit for security
-app.use(express.urlencoded({ extended: true, limit: '1mb' }))
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '1mb';
+
+app.use(
+  express.json({
+    limit: jsonBodyLimit,
+    strict: true,
+  })
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: jsonBodyLimit,
+  })
+);
 
 // ============================================================================
 // 🆕 OPENTELEMETRY TRACING MIDDLEWARE
@@ -660,3 +672,43 @@ process.on('unhandledRejection', async (reason) => {
 
 process.on('SIGTERM', () => shutdown('SIGTERM')) // Docker / Kubernetes stop
 process.on('SIGINT', () => shutdown('SIGINT')) // Ctrl+C in dev
+
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    logger.warn(
+      {
+        requestId: req.requestId,
+        ip: req.ip,
+        method: req.method,
+        path: req.originalUrl,
+      },
+      'Request payload exceeded configured limit'
+    );
+
+    return res.status(413).json({
+      error: 'Payload too large',
+    });
+  }
+
+  if (
+    err instanceof SyntaxError &&
+    err.status === 400 &&
+    'body' in err
+  ) {
+    logger.warn(
+      {
+        requestId: req.requestId,
+        ip: req.ip,
+        method: req.method,
+        path: req.originalUrl,
+      },
+      'Malformed JSON payload received'
+    );
+
+    return res.status(400).json({
+      error: 'Malformed JSON payload',
+    });
+  }
+
+  next(err);
+});
