@@ -133,6 +133,7 @@ import { predictDriverProfit } from '../services/ml.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePolicy } from '../middleware/requirePolicy.js';
 import { userLimiter, createStore } from '../middleware/rateLimiter.js';
+import { checkBypassEligibility } from '../services/weighStationService.js';
 
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { driverOnlineSchema, withdrawSchema, uuidParamSchema, paramIdSchema, predictDriverProfitSchema, uuidSchema } from '../validation/requestSchemas.js';
@@ -1010,7 +1011,7 @@ router.get('/:driverId/reputation', authenticate, userLimiter, requirePolicy('dr
 });
 
 
-router.get('/weigh-stations/bypass-status', requireAuth, requireDriver, async (req, res) => {
+router.get('/weigh-stations/bypass-status', authenticate, requireDriverRole, async (req, res) => {
   try {
     const driverId = req.user.id;
     const lat = parseFloat(req.query.lat);
