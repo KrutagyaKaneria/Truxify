@@ -208,6 +208,8 @@ abstract class AppLocalizations {
 
   String get savings;
 
+  String get totalShipments;
+
   String get yourUsualRoutes;
 
   String get lastTruckLocation;

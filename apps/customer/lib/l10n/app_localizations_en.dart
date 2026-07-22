@@ -174,6 +174,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get savings => 'Savings';
 
   @override
+  String get totalShipments => 'Total Shipments';
+
+  @override
   String get yourUsualRoutes => 'Your Usual Routes';
 
   @override

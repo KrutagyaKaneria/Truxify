@@ -174,6 +174,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get savings => '\u092C\u091A\u0924';
 
   @override
+  String get totalShipments => '\u0915\u0941\u0932 \u0936\u093F\u092A\u092E\u0947\u0902\u091F';
+
+  @override
   String get yourUsualRoutes => '\u0906\u092A\u0915\u0947 \u0928\u093F\u092F\u092E\u093F\u0924 \u092E\u093E\u0930\u094D\u0917';
 
   @override
