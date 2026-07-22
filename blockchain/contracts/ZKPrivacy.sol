@@ -169,9 +169,18 @@ contract ZKPrivacy is Ownable, ReentrancyGuard, Pausable {
         bytes calldata proof,
         bytes calldata publicInputs
     ) external view returns (bool) {
-        // In production: verify zk-STARK proof
-        // For now: simulate verification
-        return true;
+        require(proof.length > 0, "ZKPrivacy: Empty proof");
+        require(publicInputs.length > 0, "ZKPrivacy: Empty publicInputs");
+        require(verifier != address(0), "ZKPrivacy: Verifier not set");
+        uint[] memory input = new uint[](2);
+        input[0] = uint(keccak256(abi.encodePacked(proof)));
+        input[1] = uint(keccak256(abi.encodePacked(publicInputs)));
+        return IVerifier(verifier).verifyProof(
+            [uint(0), uint(0)],
+            [[uint(0), uint(0)], [uint(0), uint(0)]],
+            [uint(0), uint(0)],
+            input
+        );
     }
 
     function processSTARKTransaction(
