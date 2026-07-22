@@ -128,7 +128,8 @@ contract AtomicSwap is Ownable, ReentrancyGuard, Pausable {
 
         // Transfer tokens
         if (swap.tokenAddress == address(0)) {
-            payable(swap.counterparty).transfer(swap.amount);
+            (bool sentToCounterparty, ) = payable(swap.counterparty).call{value: swap.amount}("");
+            require(sentToCounterparty, "Swap transfer failed");
         } else {
             IERC20(swap.tokenAddress).safeTransfer(swap.counterparty, swap.amount);
         }
@@ -148,7 +149,8 @@ contract AtomicSwap is Ownable, ReentrancyGuard, Pausable {
 
         // Refund tokens
         if (swap.tokenAddress == address(0)) {
-            payable(swap.initiator).transfer(swap.amount);
+            (bool sentToInitiator, ) = payable(swap.initiator).call{value: swap.amount}("");
+            require(sentToInitiator, "Swap refund failed");
         } else {
             IERC20(swap.tokenAddress).safeTransfer(swap.initiator, swap.amount);
         }
@@ -221,7 +223,8 @@ contract AtomicSwap is Ownable, ReentrancyGuard, Pausable {
 
         // Transfer tokens
         if (swap.tokenAddress == address(0)) {
-            payable(swap.counterparty).transfer(swap.amount);
+            (bool sentToCounterparty, ) = payable(swap.counterparty).call{value: swap.amount}("");
+            require(sentToCounterparty, "Cross-chain swap transfer failed");
         } else {
             IERC20(swap.tokenAddress).safeTransfer(swap.counterparty, swap.amount);
         }
@@ -241,7 +244,8 @@ contract AtomicSwap is Ownable, ReentrancyGuard, Pausable {
 
         // Refund tokens
         if (swap.tokenAddress == address(0)) {
-            payable(swap.initiator).transfer(swap.amount);
+            (bool sentToInitiator, ) = payable(swap.initiator).call{value: swap.amount}("");
+            require(sentToInitiator, "Cross-chain swap refund failed");
         } else {
             IERC20(swap.tokenAddress).safeTransfer(swap.initiator, swap.amount);
         }
@@ -287,5 +291,7 @@ contract AtomicSwap is Ownable, ReentrancyGuard, Pausable {
 
     // ============ Receive ============
 
-    receive() external payable {}
+    receive() external payable {
+        revert("AtomicSwap: direct deposits not supported");
+    }
 }
