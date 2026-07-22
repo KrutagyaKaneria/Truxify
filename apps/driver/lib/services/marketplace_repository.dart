@@ -40,7 +40,8 @@ class MarketplaceRepository {
   Future<String?> _firebaseAccessToken() async {
     try {
       return await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {
+    } catch (e) {
+      print('Error: $e');
       return null;
     }
   }
@@ -48,7 +49,8 @@ class MarketplaceRepository {
   String? _supabaseAccessToken() {
     try {
       return _client.auth.currentSession?.accessToken;
-    } catch (_) {
+    } catch (e) {
+      print('Error: $e');
       return null;
     }
   }
