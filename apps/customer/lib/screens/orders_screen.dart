@@ -293,7 +293,6 @@ class _OrdersScreenState extends State<OrdersScreen>
         !_tabController.indexIsChanging) {
       _tabController.animateTo(controller.ordersTabIndex);
     }
-    _loadOrders();
   }
 
   RealtimeChannel? _ordersChannel;
