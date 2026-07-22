@@ -3,6 +3,8 @@ import hmac
 import logging
 import os
 import time
+import numpy as np
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -512,7 +514,6 @@ async def predict_traffic_eta(request: TrafficETARequest, _auth=Depends(verify_a
             eta_seconds = traffic_pipeline.predict_eta(features)
             
             if eta_seconds:
-                from datetime import timedelta
                 return TrafficETAResponse(
                     order_id=request.order_id,
                     eta_seconds=eta_seconds,
