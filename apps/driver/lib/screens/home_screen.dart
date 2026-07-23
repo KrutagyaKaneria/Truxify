@@ -20,6 +20,7 @@ import '../services/geocode_service.dart';
 import '../services/marketplace_repository.dart';
 import '../services/route_service.dart';
 import '../services/trip_service.dart';
+import '../services/sync_service.dart';
 import '../services/battery_service.dart';
 import '../services/location_service.dart';
 import '../services/weigh_station_service.dart';
@@ -34,6 +35,7 @@ import '../widgets/home/new_load_notification_banner.dart';
 import '../widgets/home/driver_status_sheet.dart';
 import '../widgets/home/active_trip_sheet.dart';
 import 'destination_picker_screen.dart';
+import 'pod_capture_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -836,6 +838,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     _loadDashboardMetrics();
   }
+
+  Future<void> _checkPendingPods() async {
+    try {
+      final hasPending = await SyncService.instance.isStopPendingSync(_activeTripId ?? '');
+      if (hasPending && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Some deliveries are pending sync.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error checking pending PoDs: $e');
+    }
+  }
 }
 
   /// Short readable label for the current location.
@@ -1580,11 +1595,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           _isRefreshingLocation || _isLoadingLocation
                               ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 1.5,
-                                    color: TruxifyColors.accent,
+                                  width: 24,
+                                  height: 24,
+                                  child: Padding(
+                                    padding: EdgeInsets.all(4.0),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.0,
+                                      color: TruxifyColors.accent,
+                                    ),
                                   ),
                                 )
                               : Icon(
