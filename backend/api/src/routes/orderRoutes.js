@@ -141,12 +141,14 @@
 
 import express from 'express';
 import multer from 'multer';
+import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 
 import { bidLimiter, userLimiter, userKeyGenerator, createStore } from '../middleware/rateLimiter.js';
 import { mongoDb, supabase, redisClient, createUserClient } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { requirePolicy } from '../middleware/requirePolicy.js';
+import { validateDocumentBuffer } from '../lib/documentValidation.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { z } from 'zod';
 import {
@@ -1435,52 +1437,103 @@ router.get('/:id/route', authenticate, userLimiter, telemetryLimiter, requirePol
   }
 });
 
-const upload = multer({
+const POD_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
+const POD_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const podUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: POD_MAX_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (POD_ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  },
 });
 
+function computeFileHash(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 // POST /api/orders/:id/pod
-router.post('/:id/pod', authenticate, requireRole(['driver']), upload.fields([{ name: 'signature', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), async (req, res) => {
+router.post('/:id/pod', authenticate, requireRole(['driver']), podUpload.fields([{ name: 'signature', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), async (req, res) => {
   try {
     const orderId = req.params.id;
-    const { data: order, error } = await orderRepository.findOrderById(orderId);
-    
-    if (error || !order) return res.status(404).json({ error: 'Order not found' });
+    const { data: order, error: orderErr } = await orderRepository.findOrderById(orderId);
+
+    if (orderErr || !order) return res.status(404).json({ error: 'Order not found' });
     if (order.driver_id !== req.user.id) return res.status(403).json({ error: 'Access Denied: Not your order' });
 
     let signatureUrl = order.pod_signature_url;
     let photoUrl = order.pod_photo_url;
+    let signatureHash = order.pod_signature_hash || null;
+    let photoHash = order.pod_photo_hash || null;
     const files = req.files || {};
-    
+
     if (files.signature && files.signature[0]) {
       const file = files.signature[0];
+      try {
+        validateDocumentBuffer(file.buffer, file.mimetype);
+      } catch (validationErr) {
+        return res.status(400).json({ error: `Invalid signature file: ${validationErr.message}` });
+      }
       const ext = file.mimetype === 'image/png' ? 'png' : 'jpg';
-      const path = `${req.user.id}/pod_sig_${orderId}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('driver-documents').upload(path, file.buffer, { contentType: file.mimetype });
-      if (!upErr) signatureUrl = path;
+      const storagePath = `${req.user.id}/pod_sig_${orderId}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('driver-documents')
+        .upload(storagePath, file.buffer, { contentType: file.mimetype });
+      if (upErr) {
+        logger.error('Signature upload to storage failed:', upErr.message);
+        return res.status(500).json({ error: 'Failed to upload signature to storage' });
+      }
+      signatureUrl = storagePath;
+      signatureHash = computeFileHash(file.buffer);
     }
 
     if (files.photo && files.photo[0]) {
       const file = files.photo[0];
+      try {
+        validateDocumentBuffer(file.buffer, file.mimetype);
+      } catch (validationErr) {
+        return res.status(400).json({ error: `Invalid photo file: ${validationErr.message}` });
+      }
       const ext = file.mimetype === 'image/png' ? 'png' : 'jpg';
-      const path = `${req.user.id}/pod_photo_${orderId}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('driver-documents').upload(path, file.buffer, { contentType: file.mimetype });
-      if (!upErr) photoUrl = path;
+      const storagePath = `${req.user.id}/pod_photo_${orderId}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('driver-documents')
+        .upload(storagePath, file.buffer, { contentType: file.mimetype });
+      if (upErr) {
+        logger.error('Photo upload to storage failed:', upErr.message);
+        return res.status(500).json({ error: 'Failed to upload photo to storage' });
+      }
+      photoUrl = storagePath;
+      photoHash = computeFileHash(file.buffer);
     }
 
-    const { data: updatedOrder, error: updateErr } = await orderRepository.updateOrder(orderId, {
-      pod_signature_url: signatureUrl,
-      pod_photo_url: photoUrl,
-      updated_at: new Date().toISOString()
-    });
+    const updates = {
+      updated_at: new Date().toISOString(),
+    };
+    if (signatureUrl !== order.pod_signature_url) updates.pod_signature_url = signatureUrl;
+    if (photoUrl !== order.pod_photo_url) updates.pod_photo_url = photoUrl;
+    if (signatureHash) updates.pod_signature_hash = signatureHash;
+    if (photoHash) updates.pod_photo_hash = photoHash;
+
+    const { data: updatedOrder, error: updateErr } = await orderRepository.updateOrder(orderId, updates);
 
     if (updateErr) {
       logger.error('Failed to update order with PoD:', updateErr.message);
-      return res.status(500).json({ error: 'Failed to update order with PoD URLs' });
+      return res.status(500).json({ error: 'Failed to update order with PoD data' });
     }
 
-    return res.json({ message: 'Proof of Delivery uploaded successfully', order: updatedOrder });
+    return res.json({
+      message: 'Proof of Delivery uploaded successfully',
+      photoUrl: updatedOrder.pod_photo_url,
+      signatureUrl: updatedOrder.pod_signature_url,
+      photoHash: updatedOrder.pod_photo_hash,
+      signatureHash: updatedOrder.pod_signature_hash,
+      uploadTimestamp: updatedOrder.updated_at,
+    });
   } catch (err) {
     logger.error('PoD upload error:', err.message);
     return res.status(500).json({ error: 'Internal server error' });
