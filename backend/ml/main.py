@@ -5,7 +5,7 @@ import os
 import time
 import numpy as np
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -582,7 +582,7 @@ async def get_traffic_data(route_id: str, _auth=Depends(verify_api_key)):
 
 
 @app.get("/eta/forecast/{route_id}")
-async def get_traffic_forecast(route_id: str, hours: int = Field(1, ge=1, le=24), _auth=Depends(verify_api_key)):
+async def get_traffic_forecast(route_id: str, hours: int = Query(default=1, ge=1, le=24), _auth=Depends(verify_api_key)):
     """Get traffic forecast for next N hours"""
     try:
         forecast = await traffic_pipeline.get_traffic_forecast(route_id, hours)
