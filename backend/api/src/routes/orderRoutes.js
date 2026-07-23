@@ -168,6 +168,7 @@ import { predictDemand, predictPrice } from '../services/ml.js';
 import { requireIdempotency } from '../middleware/idempotency.js';
 import { acquireLock, releaseLock } from '../lib/redisLock.js';
 import logger from '../middleware/logger.js';
+import { auditLog } from '../middleware/auditLog.js';
 import {
   orderRepository,
   orderValidationService,
@@ -795,7 +796,7 @@ router.get('/:id/bids', authenticate, userLimiter, requirePolicy('order:view-bid
  *         description: Bid already accepted or conflict
  */
 
-router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requirePolicy('order:accept-bid'), requireIdempotency(86400), validateParams(acceptBidParamsSchema), async (req, res) => {
+router.post('/:id/bids/:bidId/accept', authenticate, userLimiter, requirePolicy('order:accept-bid'), auditLog({ action: 'order:accept-bid', resourceType: 'order' }), requireIdempotency(86400), validateParams(acceptBidParamsSchema), async (req, res) => {
   try {
     const result = await orderLifecycleService.acceptBid(req.params.id, req.params.bidId, req.user.id);
     return res.status(result.status).json(result.body);
@@ -886,7 +887,7 @@ router.put('/:id/milestones', authenticate, userLimiter, requirePolicy('mileston
  *       429:
  *         description: Rate limited
  */
-router.post('/:id/verify-delivery', authenticate, userLimiter, requirePolicy('delivery:verify'), verifyDeliveryLimiter, requireIdempotency(86400), validateParams(paramIdSchema), validateBody(verifyDeliverySchema), async (req, res) => {
+router.post('/:id/verify-delivery', authenticate, userLimiter, requirePolicy('delivery:verify'), auditLog({ action: 'delivery:verify', resourceType: 'delivery_verification' }), verifyDeliveryLimiter, requireIdempotency(86400), validateParams(paramIdSchema), validateBody(verifyDeliverySchema), async (req, res) => {
   try {
     const { escrowUpdateFailed } = await orderLifecycleService.verifyDeliveryFn(req.params.id, req.user.id, req.body.otp);
 
@@ -986,7 +987,7 @@ router.post('/:id/resend-otp', authenticate, userLimiter, resendOtpLimiter, requ
  *       429:
  *         description: Rate limited
  */
-router.put('/:id/change-drop', authenticate, userLimiter, changeDropLimiter, requirePolicy('order:change-drop'), validateParams(paramIdSchema), validateBody(changeDropSchema), async (req, res) => {
+router.put('/:id/change-drop', authenticate, userLimiter, changeDropLimiter, requirePolicy('order:change-drop'), auditLog({ action: 'order:change-drop', resourceType: 'order' }), validateParams(paramIdSchema), validateBody(changeDropSchema), async (req, res) => {
   const { id: orderId } = req.params;
   const { drop_address, drop_lat, drop_lng } = req.body;
   try {
@@ -1108,7 +1109,7 @@ router.put('/:id/change-drop', authenticate, userLimiter, changeDropLimiter, req
  *       400:
  *         description: Validation error
  */
-router.post('/:id/cancel', authenticate, userLimiter, requirePolicy('order:cancel'), requireIdempotency(86400), validateParams(paramIdSchema), validateBody(cancelOrderSchema), async (req, res) => {
+router.post('/:id/cancel', authenticate, userLimiter, requirePolicy('order:cancel'), auditLog({ action: 'order:cancel', resourceType: 'order' }), requireIdempotency(86400), validateParams(paramIdSchema), validateBody(cancelOrderSchema), async (req, res) => {
   try {
     const result = await orderLifecycleService.cancelOrder(req.params.id, req.user.id, req.body.reason);
     return res.status(result.status).json(result.body);
@@ -1143,7 +1144,7 @@ router.post('/:id/cancel', authenticate, userLimiter, requirePolicy('order:cance
  *       200:
  *         description: Deposit confirmed
  */
-router.post('/:id/confirm-deposit', authenticate, userLimiter, requirePolicy('order:confirm-deposit'), validateParams(paramIdSchema), validateBody(
+router.post('/:id/confirm-deposit', authenticate, userLimiter, requirePolicy('order:confirm-deposit'), auditLog({ action: 'order:confirm-deposit', resourceType: 'order' }), validateParams(paramIdSchema), validateBody(
   z.object({ txHash: z.string().regex(/^0x([A-Fa-f0-9]{64})$/, 'Invalid transaction hash') }),
 ), async (req, res) => {
   const orderId = req.params.id;
