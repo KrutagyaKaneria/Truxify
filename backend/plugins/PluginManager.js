@@ -7,7 +7,7 @@ class WidgetPlugin {
         this.version = config.version || '1.0.0';
         this.description = config.description || '';
         this.author = config.author || '';
-        this.render = config.render || null;
+        this.renderFn = config.render || null;
         this.metadata = config.metadata || {};
         this.props = config.props || {};
         this.hooks = config.hooks || {};
@@ -38,8 +38,8 @@ class WidgetPlugin {
     }
     
     render(props = {}) {
-        if (this.render) {
-            return this.render({ ...this.props, ...props });
+        if (this.renderFn) {
+            return this.renderFn({ ...this.props, ...props });
         }
         return null;
     }
