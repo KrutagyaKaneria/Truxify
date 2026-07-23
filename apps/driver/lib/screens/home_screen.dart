@@ -1595,11 +1595,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           _isRefreshingLocation || _isLoadingLocation
                               ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 1.5,
-                                    color: TruxifyColors.accent,
+                                  width: 24,
+                                  height: 24,
+                                  child: Padding(
+                                    padding: EdgeInsets.all(4.0),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.0,
+                                      color: TruxifyColors.accent,
+                                    ),
                                   ),
                                 )
                               : Icon(
