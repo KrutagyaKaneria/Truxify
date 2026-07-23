@@ -247,16 +247,21 @@ class AnomalyDetector:
     def get_alerts(self, severity: Optional[str] = None) -> List[Dict]:
         """Get recent alerts"""
         alerts = []
-        keys = self.redis.keys('anomaly:alert:*')
-        
-        for key in keys[-50:]:  # Last 50 alerts
-            data = self.redis.get(key)
-            if data:
-                alert = json.loads(data)
-                if severity is None or alert.get('severity') == severity:
-                    alerts.append(alert)
-        
-        return alerts
+        cursor = 0
+        pattern = 'anomaly:alert:*'
+
+        while True:
+            cursor, keys = self.redis.scan(cursor=cursor, match=pattern, count=100)
+            for key in keys:
+                data = self.redis.get(key)
+                if data:
+                    alert = json.loads(data)
+                    if severity is None or alert.get('severity') == severity:
+                        alerts.append(alert)
+            if cursor == 0:
+                break
+
+        return alerts[-50:]
     
     def get_stats(self) -> Dict:
         """Get anomaly detection statistics"""
