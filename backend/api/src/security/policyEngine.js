@@ -79,6 +79,7 @@ const POLICIES = {
 
   'admin:view-dashboard':      { roles: [ROLES.ADMIN] },
   'admin:invalidate-cache':    { roles: [ROLES.ADMIN] },
+  'admin:view-audit-logs':     { roles: [ROLES.ADMIN] },
 
   'shard:view':                { roles: [ROLES.ADMIN] },
   'shard:query-orders':        { roles: [ROLES.ADMIN] },
